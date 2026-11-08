@@ -141,6 +141,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
                 break
             applied = d
             shifts.append([round(v, 1) for v in d])
+        run.aim = aim  # the descent heads here, not back to the uncorrected target
         if shifts:
             r.measured["servo_mm"] = shifts
             why = f"re-aimed {math.hypot(*shifts[-1]):.0f} mm by the top camera"
@@ -148,7 +149,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
         return r
     if a.name == "descend_until_contact":
         return m.descend_until_contact(float(args.get("max_dz", 60)), load=args.get("load"),
-                                       expect_z=target[2], toward=target)
+                                       expect_z=target[2], toward=run.aim)
     if a.name == "open":
         want = float(args.get("width_mm", (width or 30) + 15))
         r = m.open(min(want, run.gripper_max))
@@ -159,12 +160,15 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
     if a.name == "close":
         r = m.close(expect_mm=width)
         # Where the gripper really is once the jaws have shut, and how far that is from the food:
-        # the cameras' tape position, moved by the arm's own tape-to-jaw offset, against the target.
-        tip = run.arm.state().tip
-        enrich_move(r, tip, run)
-        seen, tape = r.measured.get("marker_xyz"), r.predicted.get("tape_xyz")
-        if seen and tape and target is not None:
-            grab = [seen[i] + tip.xyz[i] - tape[i] for i in range(3)]
+        # the cameras' tape position, moved by the arm's own tape-to-jaw offset, against the target
+        # (both camera-found, so calibration error mostly cancels). One set of joints for the
+        # offset: it is rigid, and commanded vs measured would add the sag to it.
+        st = run.arm.state()
+        enrich_move(r, st.tip, run)
+        seen = r.measured.get("marker_xyz")
+        if seen and target is not None:
+            tape = run.kin.fk(st.q, "marker").xyz
+            grab = [seen[i] + st.tip.xyz[i] - tape[i] for i in range(3)]
             r.error["to_food_mm"] = round(math.dist(grab[:2], target[:2]), 1)
         return r
     if a.name == "scoop":
@@ -408,6 +412,7 @@ def attempt(run, n: int, history: list[dict]) -> bool:
         note = "no target: the top camera has no box"
     else:
         run.enter("MOVING", action="")
+        run.aim = target  # move_to's hover correction shifts it
         for a in plan.actions:
             r = run.do(a.name, dispatch, run, a, target, width, args=a.args)
             moved = moved or a.name not in ("verify", "ask_operator")

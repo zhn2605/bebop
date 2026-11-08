@@ -67,6 +67,7 @@ class Runner:
         self.marker_cfg = cfg["cameras"].get("marker") or {}
         self.present = self.ws.get("present") or {}
         self.mode, self.object, self.width = args.mode, "", None
+        self.aim = None  # where the grab descends to: the target after the hover correction
         self.cost, self.released, self.alive = 0.0, False, True
         self.cur: int | None = None
         self.results: list[ActionResult] = []
