@@ -9,7 +9,9 @@ if [ -z "$PORT" ]; then
   echo "no ESP32 found under /dev/serial/by-id; pass the port, e.g. firmware/flash.sh /dev/ttyUSB0" >&2
   exit 1
 fi
-uvx esptool --chip esp32 --port "$PORT" --baud 921600 write-flash \
+# 115200 and the ROM loader (--no-stub): slower, but the fast stub flasher never answered over
+# our CP2102 link (seen live), and 921600 is less forgiving of a marginal cable.
+uvx esptool --chip esp32 --port "$PORT" --baud 115200 --no-stub write-flash \
   0x1000 esp32.ino.bootloader.bin \
   0x8000 esp32.ino.partitions.bin \
   0xe000 boot_app0.bin \
