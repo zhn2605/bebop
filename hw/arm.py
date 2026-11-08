@@ -39,6 +39,19 @@ def interrupt_on_exit_signals() -> None:
             signal.signal(s, _exit_signal)
 
 
+def find_port(port: str) -> str:
+    """`port`, or the first match when it is a glob: the adapter's by-id name carries its serial
+    number, which changes when the board is swapped (seen live)."""
+    if "*" not in port:
+        return port
+    import glob
+
+    found = sorted(glob.glob(port))
+    if not found:
+        raise ConnectionError(f"no arm adapter matches {port}: is the arm's USB plugged in?")
+    return found[0]
+
+
 def decode_load(raw: int) -> float:
     """Present_Load -> signed fraction of max torque. LeRobot 0.4.4 already returns it signed
     (verified on the arm: the elbow read -96 while holding), older versions return the raw
@@ -101,7 +114,7 @@ class Arm:
                 f"no calibration {cal_dir / (rid + '.json')}; run lerobot-calibrate first"
             )
         rc = SO101FollowerConfig(
-            port=self.cfg["port"],
+            port=find_port(self.cfg["port"]),
             id=rid,
             calibration_dir=cal_dir,
             use_degrees=True,
