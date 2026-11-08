@@ -219,7 +219,8 @@ function buildStreams(names) {
 function sayHint(s) {
   if (!s.live) return ["Nothing is connected. Start `uv run bebop` (without --task) to take requests here.", false];
   if (!(s.controls || []).includes("say")) return [`${s.source} does not take requests; run \`uv run bebop\`.`, false];
-  if (s.stage === "HELP" || s.stage === "STOPPED") return ["Say “continue” to resume.", true];
+  if (s.stage === "HELP") return ["Type what to do differently (it becomes a lesson for this food), or “continue”.", true];
+  if (s.stage === "STOPPED") return ["Say “continue” to resume.", true];
   if (s.goal === "deliver" && s.stage === "LISTENING") return ["Waiting at the stage pose: “yes” presents the food.", true];
   if ((s.stage === "READY" || s.stage === "LISTENING") && !s.goal) return ["Ready: a request starts a task (plan → grab → deliver).", true];
   return [`Busy (${s.stage}): only “yes” and “continue” are heard right now.`, true];
@@ -360,6 +361,7 @@ function renderDetail() {
       ${row("VLM", `${num(plan.latency_s, 1)} s, $${num(plan.cost_usd, 3)}`)}
     </table>
     ${plan.reasoning ? `<h2>Reasoning</h2><p class="text">${esc(plan.reasoning)}</p>` : ""}
+    ${(a.lessons || []).length ? `<h2>Lessons it started with</h2><ul class="text">${a.lessons.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
     ${plan.lesson ? `<h2>Lesson</h2><p class="text">${esc(plan.lesson)}</p>` : ""}
     <h2>Actions</h2>
     <div class="scroll"><table><tr class="head"><th>action</th><th>args</th><th>expected</th><th>measured</th><th>error</th><th>ok</th><th>note</th></tr>${rows}</table></div>

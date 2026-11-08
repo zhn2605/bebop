@@ -24,6 +24,7 @@ from pathlib import Path
 
 import yaml
 
+from brain import lessons
 from core import steps
 from core.notify import Notifier
 from core.state import RUNS_DIR, EventLog, State
@@ -36,6 +37,10 @@ LED = {"READY": "green", "LISTENING": "green", "THINKING": "yellow", "MOVING": "
        "PRESENTING": "yellow", "STOPPED": "red", "HELP": "red"}
 YES = {"yes", "yeah", "yep", "ready", "ok", "okay", "sure"}
 CONTINUE = ("continue", "resume", "go on", "keep going")
+# An utterance made only of these at HELP just resumes; anything more is a lesson.
+GO_WORDS = {"continue", "resume", "go", "on", "keep", "going", "please", "ok", "okay", "yes",
+            "try", "again", "it"}
+LESSON_CUES = {"lesson", "tip", "hint", "note"}
 SAG = "Torque off: the arm sags and drops. Keep hands and faces clear."
 NO_FACE = FaceState(0.0, False, False, 0.0, 0.0, 0.0, False)
 
@@ -77,6 +82,10 @@ class Runner:
         self.cur: int | None = None
         self.results: list[ActionResult] = []
         self.lessons: list[str] = []
+        self.new_lessons: list[str] = []  # the planner's, this task; saved when the pickup works
+        self.learning = not getattr(args, "no_learning", False)  # False = the baseline
+        self.asking = False  # in help(): what the caregiver says becomes a lesson
+        self.tries, self.task_n = 0, 0
         self.plan_anns: dict[str, list] = {}
         self.esp32 = self.listener = self.publisher = None
 
@@ -160,7 +169,7 @@ class Runner:
             from dashboard.client import Publisher
 
             controls = {"stop": self.trip_stop, "resume": self.resume, "release": self.release,
-                        "say": self.on_utterance}
+                        "say": lambda text: self.on_utterance(text, typed=True)}
             self.publisher = Publisher("bebop", self.state, self.cameras, controls=controls,
                                        port=self.args.port).start()
         if self.args.voice or not self.args.task:
@@ -216,12 +225,24 @@ class Runner:
         self.released = True
         self.log.emit("release", reason=reason)
 
-    def on_utterance(self, text: str) -> None:
+    def on_utterance(self, text: str, typed: bool = False) -> None:
         self.log.emit("heard", text=text)
         self.state.set(voice=text)
         low = text.lower()
         stage = self.state.get("stage")
-        if stage in ("STOPPED", "HELP") and any(w in low for w in CONTINUE):
+        words = re.findall(r"[a-z']+", low)
+        # At HELP a lesson is typed on the dashboard, or spoken after "lesson"/"tip": the
+        # microphone also hears the room (seen in testing: chatter became a "lesson").
+        cued = bool(words) and words[0] in LESSON_CUES
+        if stage == "HELP" and self.asking and (typed or cued) and not set(words) <= GO_WORDS:
+            lesson = text.strip()
+            if cued and not typed:
+                lesson = re.sub(r"^\W*\w+\W*", "", lesson, count=1)  # drop the cue word
+            if lesson:
+                self.teach_lesson(lesson)
+                self.resume("caregiver lesson")
+                return
+        elif stage in ("STOPPED", "HELP") and any(w in low for w in CONTINUE):
             self.resume("voice")
         elif set(re.findall(r"[a-z']+", low)) & YES:
             self.yes_evt.set()
@@ -413,18 +434,36 @@ class Runner:
                 "tool": "spoon" if self.mode == "spoon" else "jaw", "hover_dz": self.hover_dz}
 
     def help(self, reason: str) -> None:
-        """HELP: ping the caregiver, wait for 'continue' or the dashboard (stop raises)."""
-        reason = f"{reason} To try again, press Resume or say \"continue\"."
+        """HELP: ping the caregiver, wait for 'continue', the dashboard, or a sentence on what to
+        do differently, which becomes a lesson for this food and resumes (stop raises)."""
+        food = self.object or "this food"
+        reason = (f"{reason} Type what to do differently on the dashboard, or say \"lesson\" and "
+                  f"then it (it becomes a lesson for {food}); or press Resume or say "
+                  "\"continue\".")
         self.enter("HELP", help=reason, action="waiting for the caregiver")
-        self.notifier.help(f"{reason}. Say 'continue' or press Resume on the dashboard.", self.url)
+        self.notifier.help(reason, self.url)
         if self.args.task:  # one request from the command line: report and exit, never linger
             raise Abort(reason)
         print(f"HELP: {reason}")
         self.resume_evt.clear()
-        while not self.resume_evt.wait(0.2):
-            self.check()
+        self.asking = True
+        try:
+            while not self.resume_evt.wait(0.2):
+                self.check()
+        finally:
+            self.asking = False
         self.resume_evt.clear()
         self.state.set(help="")
+
+    def teach_lesson(self, text: str) -> None:
+        """A caregiver's lesson: used from the next attempt on and, unless this is the
+        no-learning baseline, saved for this food."""
+        self.log.emit("lesson", source="caregiver", text=text, object=self.object)
+        print(f"lesson from the caregiver: {text}")
+        if self.learning:
+            self.lessons.append(lessons.CAREGIVER + text.strip())
+            lessons.add(self.object, text, "caregiver")
+            self.state.set(lessons=list(self.lessons))
 
     def _wait_continue(self, msg: str, action: str) -> None:
         self.enter("HELP", help=msg, action=action)
@@ -462,10 +501,13 @@ class Runner:
     def task(self, obj: str, mode: str) -> None:
         """acquire then deliver. A failed goal goes through HELP and runs again; a stop goes through
         STOPPED and, once resumed, runs the goal again from home. Release cancels the task."""
-        self.object, self.mode, self.lessons = obj, mode, []
+        self.object, self.mode = obj, mode
+        self.lessons = lessons.load(obj) if self.learning else []
+        self.new_lessons, self.tries, self.task_n = [], 0, self.task_n + 1
         self.arm.tool = "spoon" if mode == "spoon" else "jaw"
-        self.state.set(task=obj, mode=mode)
-        self.log.emit("task", object=obj, mode=mode)
+        self.state.set(task=obj, mode=mode, lessons=list(self.lessons))
+        self.log.emit("task", object=obj, mode=mode, learning=self.learning,
+                      lessons=list(self.lessons))
         goals = (
             (lambda: steps.acquire(self), f"Pickup of {obj} failed after {self.max_attempts} tries."),
             (lambda: steps.deliver(self, obj, mode),
@@ -605,6 +647,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="multiplier for every arm and gripper speed, e.g. 1.5")
     p.add_argument("--attempts", type=int, help="tries per goal before HELP (brain.yaml max_attempts)")
     p.add_argument("--budget", type=float, help="VLM USD for the run (brain.yaml run_budget_usd)")
+    p.add_argument("--no-learning", action="store_true",
+                   help="baseline: each attempt plans as if it were the first (no history, no "
+                        "lessons); `uv run report` compares it with the normal runs")
     args = p.parse_args(argv)
     return Runner(args, load_config()).run()
 

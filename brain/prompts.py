@@ -67,7 +67,11 @@ nothing (the target was off, or the jaws stopped above the piece); descend_until
 far above the predicted height means it hit the rim or another piece; move_to px is how far the
 camera saw the tip from where it should have been. On a retry change something: move the box onto
 the piece's centre, pick another piece, open wider, descend further, change the pitch, scoop deeper
-or longer."""
+or longer.
+
+Lessons are kept per food across runs. Those starting with "From the caregiver:" come from a person
+who watched the robot fail with this food: follow them, over your own lessons when they conflict,
+and say in reasoning how this plan follows them."""
 
 _ARG_TEXT = {
     "at": '"target"',
