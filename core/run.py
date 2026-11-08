@@ -116,6 +116,9 @@ class Runner:
             if not path.exists():
                 sys.exit(f"{path} is missing: run python -m tools.calibrate first")
             self.calib = Calibration.load(path)
+            bad = self.calib.implausible(float(self.ws.get("table_z", 0)))
+            if bad:
+                sys.exit(f"{path} is no real camera ({'; '.join(bad)}): rerun tools.calibrate")
             self.cameras = Cameras(self.cfg["cameras"])
         self.face = FaceSignals(self.cameras, "face", self.cfg["cameras"], fake=self.args.fake)
         brain = dict(self.brain)

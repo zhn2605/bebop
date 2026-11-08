@@ -42,10 +42,12 @@ tool has a short name (`uv run arm-check`, `teach`, `calibrate`, `list-cameras`,
 3. `uv run teach`: torque goes off, move the arm by hand, Enter saves `home`, `stage`
    (15 cm in front of the mouth) and `mouth` (tool at the lips) into `config/poses.yaml`.
    `--goto NAME` replays one.
-4. `uv run calibrate`: yellow tape on the gripper, cameras rigid. The arm visits ~15
-   tip poses, fits both cameras and saves `config/calib.json` with the RMS px per camera.
-   `--check` draws the predicted tip into `data/calib_check/<cam>.jpg`.
-   Poses where the tape is hidden are rejected.
+4. `uv run calibrate`: close the jaws on a small ball in a colour nothing else in view has
+   (`ball:` in `config/cameras.yaml`, its centre in `tool_offsets.ball` of `config/robot.yaml`),
+   cameras rigid. The arm carries it through 27 points from the food's height up (`calib_box`),
+   fits both cameras and prints the held-out error (aim: top < 3 px, side < 6 px, < 5 mm). A fit
+   no real camera could have (under the table, a wild focal length) is not saved.
+   `--check` draws the predicted ball into `data/calib_check/<cam>.jpg`.
    Optional: `uv run face-check`, `uv run voice-check`.
 5. Fake end-to-end (no hardware, real VLM):
    `uv run bebop --fake --mode solid --task "feed me a donut hole"`

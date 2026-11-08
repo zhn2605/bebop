@@ -60,6 +60,9 @@ gripper:
 tool_offsets:
   jaw: [0.0, 0.0, 0.0]
   marker: [-30.0, 0.0, 40.0]   # yellow tape, fitted by tools.calibrate
+  # Centre of the calibration ball held in the closed jaws (tools.calibrate): about its radius
+  # behind the tips and across the gap along gap_dir. PLACEHOLDER for a 30 mm ball, measure.
+  ball: [-10.0, -15.0, 0.0]
   spoon: [90.0, 0.0, -20.0]   # PLACEHOLDER, measure the spoon bowl centre with the spoon strapped in
 
 # Planar link geometry, mm, derived from the joint origins in so101_new_calib.urdf
