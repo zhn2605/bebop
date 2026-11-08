@@ -154,6 +154,26 @@ the arm, then after a second it goes home slowly and holds there with torque on 
 freezes it where it is). Only Release turns torque off. Resume (or saying "continue") goes on with
 the task. After three failed attempts, or when the planner says it is
 unsafe, the robot goes to HELP: red LED, a phone notification, and it waits for Resume or "continue".
+At HELP the caregiver can also teach it: type what to do differently in the dashboard's box (or say
+"lesson" first, e.g. "lesson: press from the top, it rolls"). That becomes a lesson and the robot
+tries again with it. Other speech at HELP is ignored, because the microphone hears the room too.
+Lessons are kept per food in `data/lessons.json`, along with the planner's own lessons from pickups
+that worked, so the next request for that food starts with them. The dashboard shows the lessons
+each attempt started with. To forget one, delete it from the file.
+
+## Baseline and report
+
+Every acquire try logs one `outcome` event: the food, the planner's predicted chance of success,
+whether it worked, and which task and try it was. `uv run bebop --no-learning ...` is the baseline:
+it plans every attempt as if it were the first, with no history and no lessons. Its tries are
+logged the same way.
+
+`uv run report` combines every real run (`--fake` includes the fake ones, `--food` picks one food,
+`--csv PATH` dumps every try), comparing learning against the baseline. It shows how many tasks got
+the food by try 1, 2, 3 and 4, the tries to the first success, and how many never got it. It also
+shows the Brier score (how far the predicted chances were from what happened, lower is better),
+overall and by try number, and predicted against actual success. For a fair comparison, run both
+policies on the same food and plate, alternating, and reset the plate between tasks.
 
 ## Caregiver phone notifications (ntfy)
 

@@ -36,6 +36,7 @@ list-cameras = "tools.list_cameras:main"
 face-check = "tools.face_check:main"
 voice-check = "tools.voice_check:main"
 esp32-check = "tools.esp32_check:main"
+report = "tools.report:main"
 
 [build-system]
 requires = ["hatchling"]

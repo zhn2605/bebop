@@ -234,6 +234,7 @@ HELP notifications go to a phone via ntfy.
   `workspace.yaml` calib_box), finds it in `top` and `side`, fits, prints the held-out px and mm,
   saves `config/calib.json` unless the fit is implausible;
   `--check` projects the current tip into each stream window for a visual check.
+- `tools.report`: learning vs the `--no-learning` baseline over every run's `outcome` events (README).
 - `tools.face_check`: prints `FaceState` at 5 Hz. `tools.voice_check`: prints partials/finals and
   stop-word hits.
 

@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import asdict
 
+from brain import lessons
 from core.types import Action, ActionResult, Pose, Unreachable
 from motion.kinematics import approach
 
@@ -503,9 +504,25 @@ def deliver(run, obj: str, mode: str) -> bool:
 
 
 def acquire(run) -> bool:
-    """Up to max_attempts attempts, each told the previous ones' metrics; True once held."""
+    """Up to max_attempts attempts, each told the previous ones' metrics; True once held. A
+    pickup that worked keeps the planner's lessons of this task for the food (brain/lessons.py)."""
     history: list[dict] = []
-    return any(attempt(run, n, history) for n in range(1, run.max_attempts + 1))
+    ok = any(attempt(run, n, history) for n in range(1, run.max_attempts + 1))
+    if ok and run.learning:
+        for text in run.new_lessons:
+            lessons.add(run.object, text, "planner")
+        run.new_lessons = []
+    return ok
+
+
+def outcome(run, plan, ok: bool, err_mm: float | None = None) -> None:
+    """One try's prediction against what happened, for tools/report.py: the food, the policy
+    (learning or the no-learning baseline), which task and which try of it, success_prob, ok."""
+    run.tries += 1
+    run.log.emit("outcome", food=lessons.key(run.object), learning=run.learning,
+                 task=f"{run.log.dir.name}/{run.task_n}", try_n=run.tries,
+                 p=plan.prediction.success_prob, ok=bool(ok), err_mm=err_mm,
+                 escalated=plan.escalate, fake=run.fake is not None)
 
 
 def attempt(run, n: int, history: list[dict]) -> bool:
@@ -517,8 +534,10 @@ def attempt(run, n: int, history: list[dict]) -> bool:
     tag = f"a{len(run.state.attempts) + 1}-plan"
     frames = {f"plan {c}": run.log.save_frame(c, j, tag) for c, j in images.items()}
     ctx = {"task": run.object, "mode": run.mode, "goal": "acquire",
-           "capabilities": run.capabilities(), "attempts": history,
-           "lessons": list(run.lessons), "images": images}
+           "capabilities": run.capabilities(),
+           # The no-learning baseline plans every attempt as if it were the first.
+           "attempts": history if run.learning else [],
+           "lessons": list(run.lessons) if run.learning else [], "images": images}
     plan = run.planner.plan(ctx)
     run.spent(plan.cost_usd, plan.latency_s)
     target, width = locate(plan, run.calib, run.rim_z)
@@ -530,19 +549,22 @@ def attempt(run, n: int, history: list[dict]) -> bool:
         run.kin.tools["grasp"] = [half * float(v) for v in gap]
         run.arm.tool = "grasp"
     run.begin_record("acquire", run.object, run.mode, n=n, plan=plan, target_xyz=target,
-                     width_mm=width, frames=frames)
+                     width_mm=width, frames=frames, lessons=list(ctx["lessons"]))
     run.log.emit("plan", attempt=n, plan=plan, target_xyz=target, width_mm=width)
     run.plan_anns = plan_annotations(plan, target, run.calib, run.object)
     run.show({})
     run.state.set(target_xyz=target, err_px=None, err_mm=None)
-    if plan.lesson:
+    if plan.lesson and run.learning:
         run.lessons.append(plan.lesson)
+        run.new_lessons.append(plan.lesson)
     run.check()
     if plan.escalate:
         run.end_record(None, False, note=f"escalated: {plan.escalate_reason}")
+        outcome(run, plan, False)
         raise NeedHelp(f"Planner requested help: {plan.escalate_reason or 'no reason given'}")
     if width is not None and width > run.gripper_max * WIDE_FACTOR:
         run.end_record(None, False, note=f"{width:.0f} mm wide")
+        outcome(run, plan, False)
         raise NeedHelp(f"{run.object} measures {width:.0f} mm wide. The gripper opens "
                        f"{run.gripper_max:.0f} mm at most.")
     run.width = width
@@ -571,8 +593,9 @@ def attempt(run, n: int, history: list[dict]) -> bool:
         note = f"close: {closes[-1].note}"  # the gripper already says it missed: no VLM verify
     verdict = None if note else run.verify(f"Is {run.object} held in the {run.tool_word}?")
     ok = bool(verdict and verdict.ok) and (run.mode == "spoon" or bool(closes and closes[-1].ok))
-    run.end_record(verdict, ok, lesson=plan.lesson, note=note,
-                   err_mm=position_error_mm(run.results))
+    err = position_error_mm(run.results)
+    run.end_record(verdict, ok, lesson=plan.lesson, note=note, err_mm=err)
+    outcome(run, plan, ok, err)
     history.append({"reasoning": plan.reasoning, "results": [asdict(r) for r in run.results],
                     "verdict": asdict(verdict) if verdict else None, "note": note})
     if not ok and moved:
