@@ -12,6 +12,7 @@ is. Only the dashboard's Release turns torque off. Ctrl+C: freeze, fold to rest,
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import queue
 import re
@@ -28,6 +29,7 @@ from core.notify import Notifier
 from core.state import RUNS_DIR, EventLog, State
 from core.steps import Abort, NeedHelp
 from core.types import JOINTS, ActionResult, FaceState, Flag, Stopped, Verdict
+from perception.mouth import EYES_MM, MouthTrack, locate_mouth
 
 CONFIG = Path("config")
 LED = {"READY": "green", "LISTENING": "green", "THINKING": "yellow", "MOVING": "yellow",
@@ -66,7 +68,9 @@ class Runner:
         self.rim_z = float((self.fake or {}).get("bowl_rim_z", self.ws.get("bowl_rim_z", 30)))
         self.gripper_max = float((self.robot.get("gripper") or {}).get("max_mm", 60))
         self.marker_cfg = cfg["cameras"].get("marker") or {}
-        self.present = self.ws.get("present") or {}
+        # fake.yaml's `present:` overrides some of it (the fake person can't lean in)
+        fake_present = (self.fake or {}).get("present") or {}
+        self.present = {**(self.ws.get("present") or {}), **fake_present}
         self.mode, self.object, self.width = args.mode, "", None
         self.aim = None  # where the grab descends to: the target after the hover correction
         self.cost, self.released, self.alive = 0.0, False, True
@@ -123,6 +127,14 @@ class Runner:
                 sys.exit(f"{path} is no real camera ({'; '.join(bad)}): rerun tools.calibrate")
             self.cameras = Cameras(self.cfg["cameras"])
         self.face = FaceSignals(self.cameras, "face", self.cfg["cameras"], fake=self.args.fake)
+        # The side camera's view of the mouth gives its distance (perception/mouth.py); MediaPipe
+        # finds a face up to about a three-quarter view, so a strict profile falls back to the eyes.
+        self.side_face = None
+        if not self.args.fake and "face" in self.calib.names and "side" in self.calib.names:
+            self.side_face = FaceSignals(self.cameras, "side", self.cfg["cameras"])
+        self.mouth_track = MouthTrack()
+        self._mouth_t = 0.0
+        self.eyes_mm = float((self.cfg["cameras"].get("face") or {}).get("eyes_mm", EYES_MM))
         brain = dict(self.brain)
         brain.update({k: v for k, v in (("provider", self.args.provider),
                                         ("model", self.args.model)) if v})
@@ -139,6 +151,8 @@ class Runner:
             take_over()  # an older run still holding the arm and cameras gets folded and stopped
         self.cameras.start()
         self.face.start()
+        if self.side_face is not None:
+            self.side_face.start()
         self.arm.connect()
         self.state.set(fake=self.args.fake, mode=self.mode, max_attempts=self.max_attempts,
                        budget_usd=self.budget)
@@ -160,7 +174,7 @@ class Runner:
 
     def close(self) -> None:
         self.alive = False
-        for part in (self.listener, self.face, self.cameras):
+        for part in (self.listener, self.face, self.side_face, self.cameras):
             try:
                 if part is not None:
                     part.stop()
@@ -214,6 +228,34 @@ class Runner:
         if stage in ("READY", "LISTENING") and self.cur is None:
             self.heard.put(text)
 
+    @property
+    def tracking(self) -> bool:
+        """The mouth can be tracked: the face camera is calibrated, or the fake world has one."""
+        return "face" in self.calib.names or bool((self.fake or {}).get("mouth_xyz"))
+
+    def mouth_xyz(self):
+        """The tracked mouth (base frame mm, the median of the last second), or None while no
+        still face is seen."""
+        if self.fake is not None and self.fake.get("mouth_xyz"):
+            return tuple(float(v) for v in self.fake["mouth_xyz"])
+        fs = self.face_state()
+        if fs.t != self._mouth_t:
+            self._mouth_t = fs.t
+            side = self.side_face.state if self.side_face is not None else None
+            got = locate_mouth(self.calib, fs, side, self.eyes_mm)
+            if got is not None:
+                self.mouth_track.add(fs.t, *got)
+        return self.mouth_track.stable(time.time())
+
+    def food_cm(self, n: int = 1) -> float | None:
+        """Ultrasonic distance from the food to what is in front of it, cm: the largest of the
+        last n readings (n > 1 ignores a lone false echo), minus how far the sensor sits behind
+        the food. None without readings or when one of them had no echo (nothing close)."""
+        rec = list(getattr(self.esp32, "recent", []))[-n:]
+        if len(rec) < n or any(d is None for d in rec):
+            return None
+        return max(rec) - float(self.present.get("sensor_behind_food_cm", 0))
+
     def dist_cm(self) -> float | None:
         return getattr(self.esp32, "dist_cm", None)
 
@@ -227,6 +269,8 @@ class Runner:
             try:
                 fs = self.face_state()
                 fields = {"arm": self.arm.state(), "face": fs, "dist_cm": self.dist_cm()}
+                if self.tracking and "face" in self.cameras.names:
+                    self.state.annotate("face", self.mouth_annotations(fs))
                 if self.listener is not None:
                     fields["voice_error"] = self.listener.error
                 self.state.set(**fields)
@@ -244,6 +288,19 @@ class Runner:
                     print(f"telemetry: {type(e).__name__}: {e}")
                 failed = True
             time.sleep(0.2)
+
+    def mouth_annotations(self, fs: FaceState) -> list[dict]:
+        """The face stream's overlay: the mouth, and how far the food is from it."""
+        if fs.mouth_uv is None:
+            return []
+        m = self.mouth_xyz()
+        label = "mouth"
+        if m is not None:
+            food = self.arm.state().tip.xyz
+            label = f"mouth: food {math.dist(m, food) / 10:.0f} cm away ({self.mouth_track.how})"
+        if fs.chewing:
+            label += ", chewing"
+        return [{"type": "point", "uv": list(fs.mouth_uv), "color": "magenta", "label": label}]
 
     def gate(self) -> str | None:
         """present's gate: a reason to stop short (ultrasonic, face lost, stop), else None."""

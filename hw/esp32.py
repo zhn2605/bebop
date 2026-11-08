@@ -11,6 +11,7 @@ import contextlib
 import json
 import threading
 import time
+from collections import deque
 
 from core.types import Flag
 
@@ -25,6 +26,7 @@ class Esp32:
 
         self.stop = stop
         self.dist_cm: float | None = None
+        self.recent: deque[float | None] = deque(maxlen=10)  # the last readings, None = no echo
         self.estop = False
         self.contact = False
         self.state = "READY"
@@ -60,6 +62,7 @@ class Esp32:
                     if "dist_cm" in msg:
                         d = msg["dist_cm"]
                         self.dist_cm = float(d) if isinstance(d, (int, float)) else None
+                        self.recent.append(self.dist_cm)
                     if "contact" in msg:
                         self.contact = bool(msg["contact"])
             quiet = now - (self.last_rx or self._t_open)

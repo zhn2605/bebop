@@ -195,6 +195,16 @@ class Calibration:
         x, y = np.linalg.solve(A, b)
         return float(x), float(y), float(z)
 
+    def at_depth(self, name: str, uv: UV, depth: float) -> Vec3:
+        """The point `depth` mm in front of camera `name` (along its optical axis) that projects
+        to uv. Needs a fitted camera (K)."""
+        K = self.K[name]
+        Rt = np.linalg.solve(K, self.P[name])  # [R | t]: P is K [R | t] with a unit third row
+        u, v = self._undistort(name, uv)
+        xc = depth * np.linalg.solve(K, [u, v, 1.0])
+        x, y, z = Rt[:, :3].T @ (xc - Rt[:, 3])
+        return float(x), float(y), float(z)
+
     def along_ray(self, name: str, uv: UV, other: str, other_uv: UV,
                   z_range: tuple[float, float]) -> tuple[Vec3, float]:
         """The point on `name`'s ray through uv (heights z_range, 1 mm steps) that `other` sees

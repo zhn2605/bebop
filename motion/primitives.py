@@ -342,6 +342,44 @@ class Motion:
         self._goto(r, "home")
 
     @_action
+    def approach(
+        self,
+        r: ActionResult,
+        target,
+        gate: Callable[[], str | None],
+        speed: str = "slow",
+        dist: Callable[[], float | None] | None = None,
+    ) -> None:
+        """Straight toward `target` at the present pitch (the food first), in the deliver
+        corridor, behind `gate`; as far along the line as the arm reaches. stopped_by: the gate's
+        reason, "arrived", or "edge of reach"."""
+        a = self.tip
+        full = math.dist(a.xyz, target)
+
+        def at(length: float) -> Pose:
+            s = length / full if full > 0 else 1.0
+            return Pose(_lerp(a.xyz, target, s), a.pitch, a.roll)
+
+        length = full
+        while length > 1e-6:
+            try:
+                self.kin.ik_any_pitch(at(length), self.arm.tool)
+                break
+            except Unreachable:
+                length -= 5.0
+        r.predicted.update(tip_xyz=_r(target))
+        if length <= 1e-6:
+            why = "out of reach"
+        elif (tr := self._go(r, at(length), speed, "deliver", gate)) is None:
+            why = "refused"  # r.note says why (the fence)
+        else:
+            self._measure(r, tr, target)
+            short = full - length
+            why = self.arm.halt_reason or ("arrived" if short < 1e-6
+                                           else f"edge of reach, {short:.0f} mm short")
+        r.measured.update(dist_cm=dist() if dist else None, stopped_by=why)
+
+    @_action
     def present(
         self,
         r: ActionResult,

@@ -1,6 +1,8 @@
 """Face signals from the `face` camera with MediaPipe FaceLandmarker: mouth open, yaw/pitch, looking
-away. Debounced: mouth_open needs the ratio above threshold for `open_s`, looking_away needs |yaw|
-above `away_yaw_deg` or no face for `away_s` (and the same time to clear)."""
+away, where the mouth is (pixel) and the eye spacing (px, for its depth), and chewing. Debounced:
+mouth_open needs the ratio above threshold for `open_s`, looking_away needs |yaw| above
+`away_yaw_deg` or no face for `away_s` (and the same time to clear). Chewing = the lips opened past
+`chew_hi` and closed under `chew_lo` at least twice within `chew_s`."""
 
 from __future__ import annotations
 
@@ -8,6 +10,7 @@ import math
 import threading
 import time
 import urllib.request
+from collections import deque
 from pathlib import Path
 
 from core.types import FaceState
@@ -26,8 +29,12 @@ DEFAULTS = {
     "pitch_sign": 1,
     "yaw_offset_deg": 0.0,
     "hz": 15,
+    "chew_hi": 0.15,
+    "chew_lo": 0.07,
+    "chew_s": 3.0,
 }
 LIP_TOP, LIP_BOTTOM, CORNER_L, CORNER_R = 13, 14, 61, 291
+IRIS_R, IRIS_L = 468, 473  # iris centres; the landmarker's 478-point output has them
 
 
 def ensure_model(path: Path = MODEL_PATH) -> Path:
@@ -66,13 +73,19 @@ class FaceSignals:
         self._state = FaceState(0.0, False, False, 0.0, 0.0, 0.0, False)
         self._open = _Debounce(self.cfg["open_s"])
         self._away = _Debounce(self.cfg["away_s"])
+        self._closes: deque[float] = deque(maxlen=20)  # times the lips closed after opening
+        self._lips_apart = False
+        self._t0 = time.time()
         self._run = threading.Event()
         self._thread: threading.Thread | None = None
 
     @property
     def state(self) -> FaceState:
-        if self.fake:
-            return FaceState(time.time(), True, True, 0.5, 0.0, 0.0, False, (320.0, 230.0), 230.0)
+        if self.fake:  # open 2 s, then closed (chewing) 1.5 s, so a fake bite happens
+            now = time.time()
+            opened = (now - self._t0) % 3.5 < 2.0
+            return FaceState(now, True, opened, 0.5 if opened else 0.05, 0.0, 0.0, False,
+                             (320.0, 230.0), 230.0, (320.0, 305.0), 60.0, not opened)
         return self._state
 
     def start(self) -> FaceSignals:
@@ -141,7 +154,12 @@ class FaceSignals:
             R = r.facial_transformation_matrixes[0][:3, :3]
             pitch = math.degrees(math.atan2(-R[1, 2], R[2, 2]))
             yaw = math.degrees(math.atan2(-R[2, 0], math.hypot(R[2, 1], R[2, 2])))
+        (ux, uy), (lx, ly) = pts[LIP_TOP], pts[LIP_BOTTOM]
+        mouth = ((ux + lx) / 2, (uy + ly) / 2)
+        eyes = math.dist(pts[IRIS_R], pts[IRIS_L]) if len(pts) > IRIS_L else 0.0
         return {
+            "mouth": mouth,
+            "eyes": eyes,
             "ratio": gap / width if width > 0 else 0.0,
             "yaw": self.cfg["yaw_sign"] * yaw - self.cfg["yaw_offset_deg"],
             "pitch": self.cfg["pitch_sign"] * pitch,
@@ -156,6 +174,12 @@ class FaceSignals:
             return FaceState(t, False, self._open.update(False, t), 0.0, 0.0, 0.0, away)
         mouth_open = self._open.update(obs["ratio"] > c["mouth_open_ratio"], t)
         away = self._away.update(abs(obs["yaw"]) > c["away_yaw_deg"], t)
+        if obs["ratio"] > c["chew_hi"]:
+            self._lips_apart = True
+        elif obs["ratio"] < c["chew_lo"] and self._lips_apart:
+            self._lips_apart = False
+            self._closes.append(t)
+        chewing = sum(t - tc <= c["chew_s"] for tc in self._closes) >= 2
         return FaceState(
             t,
             True,
@@ -166,4 +190,7 @@ class FaceSignals:
             away,
             obs["center"],
             obs["width"],
+            obs["mouth"],
+            obs["eyes"],
+            chewing,
         )

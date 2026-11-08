@@ -30,13 +30,14 @@ const int PIN_ECHO = 18;        // line 178-179: through the 1k/2k divider (5 V 
 const int PIN_SDA = 21;         // line 184: OLED SDA
 const int PIN_SCL = 22;         // line 184: OLED SCL
 const int PIN_LED_GREEN = 25;   // line 186-187: green (ready)
-const int PIN_LED_YELLOW = 26;  // line 189-190: yellow (thinking); there is no blue LED
+const int PIN_LED_YELLOW = 26;  // line 189-190: the "yellow" (thinking) slot; a blue LED live
 const int PIN_LED_RED = 33;     // line 192-193: red (stopped)
 const int PIN_CONTACT = 32;     // line 196-197: mount button to GND, INPUT_PULLUP; optional
 const int PIN_PIEZO = 34;       // line 199-200: piezo, 1 MΩ to GND; input-only, ADC1; optional
 
 // 0 when the piezo (and its 1 MΩ) isn't wired: a floating GPIO34 reads noise -> random contact.
-#define PIEZO_ENABLED 1
+// Live build (2026-11-08): no piezo, no contact switch (GPIO32 idles HIGH on its pull-up), no OLED.
+#define PIEZO_ENABLED 0
 
 const uint32_t TELEMETRY_MS = 50;
 const uint32_t PING_MS = 60;

@@ -168,3 +168,6 @@ class FaceState:
     looking_away: bool
     center_uv: UV | None = None
     face_width_px: float = 0.0
+    mouth_uv: UV | None = None  # centre between the inner lips, px
+    eyes_px: float = 0.0  # distance between the iris centres, px (gives the face's depth)
+    chewing: bool = False  # the lips opened and closed at least twice in the last few seconds

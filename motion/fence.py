@@ -50,6 +50,14 @@ class Fence:
     def set_segment(self, stage: Vec3, mouth: Vec3) -> None:
         self.segment = (tuple(stage), tuple(mouth))
 
+    def around_mouth(self, stage: Vec3, mouth: Vec3, half_mm: float = 110.0) -> None:
+        """Head zone and corridor from a tracked mouth: a box round the head (chin to crown) that
+        only the stage -> mouth corridor enters, and never past the mouth point."""
+        x, y, z = mouth
+        self.head = {"x": [x - half_mm, x + half_mm], "y": [y - half_mm, y + half_mm],
+                     "z": [z - 90.0, z + 200.0]}
+        self.set_segment(stage, mouth)
+
     def in_corridor(self, p: Vec3) -> bool:
         if not self.segment:
             return False

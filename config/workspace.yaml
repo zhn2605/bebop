@@ -4,7 +4,7 @@
 # acquire: the tip may go anywhere the arm can physically reach: a ring around the base axis
 # (r = distance from the pan axis, mm) between the heights below. Nothing is refused before an
 # attempt except the head zone and the table; IK's "unreachable" is the only other stop.
-fence: {r: [90, 600], z: [-95, 300]}
+fence: {r: [90, 600], z: [-95, 450]}  # up to a seated person's mouth
 # The calibration sweep still needs a rectangle to visit: this box, turned by fence_yaw_deg of
 # shoulder_pan toward where the plate sits (live 2026-11-08: the plate is at pan ~80-100).
 # z: the bottom layer is the food's centre height (the ball must clear the plate), the top a
@@ -12,6 +12,8 @@ fence: {r: [90, 600], z: [-95, 300]}
 calib_box: {x: [130, 320], y: [-150, 150], z: [-75, 40]}
 fence_yaw_deg: 80
 # Around the user's head: forbidden except inside the stage -> mouth corridor while delivering.
+# Used with taught stage/mouth poses only; a tracked mouth (calibrated face camera) puts a box
+# round the head it sees instead (motion/fence.py around_mouth).
 # PLACEHOLDER: set it around the seated user's head once `mouth` is taught.
 head_zone: {x: [300, 900], y: [-300, 300], z: [180, 900]}
 deliver_radius_mm: 40   # radius of the stage -> mouth corridor (flat end at the mouth)
@@ -23,4 +25,23 @@ table_z: -95            # plate surface in the arm's (FK) frame. Live 2026-11-08
 bowl_rim_z: -80         # food-centre height for the top camera alone: table_z + ~15 for donut holes
 retract_dz: 60
 scoop_pitch: -60        # tool pitch for the scoop dip
-present: {stop_short_mm: 50, ultrasonic_stop_cm: 6, speed: slow}
+# Delivery. With a tracked mouth (core/steps.py deliver_tracked): the stage point is stage_mm out
+# from the mouth toward the arm; the food then comes slowly to stop_short_mm from the mouth and
+# holds there (it never goes into the mouth: the person leans in). The ultrasonic on the wrist,
+# corrected by sensor_behind_food_cm, only acts while the arm moves toward the face: within slow_cm
+# it creeps, within stop_short_mm it stops (close enough), within estop_cm on two readings in a
+# row it e-stops (the arm goes home). Holding still, the person may come close: a bite is the
+# mouth opening, then closing within bite_cm (ultrasonic) or bite_mm (tracked mouth) of the food.
+present:
+  stop_short_mm: 60
+  stage_mm: 150
+  slow_cm: 15
+  estop_cm: 3
+  sensor_behind_food_cm: 10  # PLACEHOLDER: the reading with a card held flat against the food
+  reaim_mm: 30               # the head moved this far: back out and aim again (up to `reaims`)
+  reaims: 3
+  bite_cm: 3
+  bite_mm: 35
+  bite_timeout_s: 15
+  ultrasonic_stop_cm: 6      # taught stage/mouth poses only (no tracked mouth)
+  speed: slow

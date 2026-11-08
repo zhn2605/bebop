@@ -58,6 +58,57 @@ Other flags: `--provider`, `--model`, `--no-dashboard`, `--port`, `--budget USD`
 run; default `run_budget_usd` in `brain.yaml`, else $1). Each run logs to
 `data/runs/<timestamp>/events.jsonl` with the frames next to it.
 
+## Demo layout and the end-to-end run
+
+The judge sits in a chair. To one side, a pole holds the `top` camera over the plate. The plate is
+in front of the judge, the arm beside it. The laptop sits behind the plate, its webcam (`face`)
+looking at the judge. The second Logitech (`side`) is off to the side and sees the plate and the
+judge's head from the side. The ultrasonic sensor sits on top of the wrist, pointing along the
+gripper. ESP32: e-stop button GPIO27 to GND, HC-SR04 TRIG GPIO5 and ECHO GPIO18 through the 1k/2k
+divider (VCC on VIN), LEDs green GPIO25, blue GPIO26 (the "yellow" slot), red GPIO33. There's no
+OLED, contact switch or piezo; `PIEZO_ENABLED` is 0 in the firmware. Reflash after pulling.
+
+How delivery works with a calibrated `face` camera (`core/steps.py` `deliver_tracked`):
+1. The mouth's 3D position comes from the webcam's mouth pixel. Its distance comes from the side
+   camera when MediaPipe finds the face there (up to about a three-quarter view), or from the eye
+   spacing otherwise (`face.eyes_mm`, about 3 cm off when the guess is 5 mm wrong). The dashboard's
+   face stream shows the mouth and how far the food is from it.
+2. The arm goes slowly to a point 15 cm out from the mouth (`stage_mm`), on the line back toward
+   its base. There it waits for an open mouth or a "yes".
+3. It comes in slowly and stops `stop_short_mm` (6 cm) short. It never goes into the mouth: the
+   judge leans in the rest. While it moves, the ultrasonic (minus `sensor_behind_food_cm`) slows it
+   to a creep within 15 cm and stops it 6 cm away. It e-stops within 3 cm on two readings in a row,
+   so one false echo does nothing; the arm then goes home. The face leaving the webcam also stops
+   it, and if the head moves 3 cm it backs out and aims again.
+4. Holding still, the ultrasonic no longer stops anything, because the judge is meant to come
+   close. A bite (mouth open, then closed at the food) makes the gripper let go. The arm backs out
+   and goes home. "Eaten" means the VLM sees the gripper empty, plus chewing on the webcam.
+
+Without a calibrated `face` camera, delivery uses the taught `stage`/`mouth` poses as before.
+
+Setup rules:
+- The arm base, the cameras and the plate stay fixed. Clamp them, tape the plate down, and don't
+  move the laptop or its lid after calibrating. Anything that moves means calibrating again.
+- Keep the mouth within about 40 cm of the arm's base (horizontally), at a height the arm reaches
+  level. Further out, the food stops at the edge of reach and the judge has to lean further.
+- Mount the ultrasonic so its cone (about 15 deg) clears the jaws and the food. Otherwise it reads
+  them as a face. Check with `uv run esp32-check`: nothing in front should read far or no echo.
+  Then hold a card flat against the food and put that reading into `sensor_behind_food_cm`.
+- Light the judge's face from the front. Nothing yellow or ball-coloured should be in the cameras'
+  view.
+
+End-to-end bring-up:
+1. Check the heights: `uv run arm-check`, `torque off`, touch the jaw tips to the plate and read
+   z. It must match `table_z` in `workspace.yaml` (now -95). If it doesn't, fix that first, and
+   move `calib_box` z with it (its bottom layer sits just above the plate).
+2. Seat someone, `uv run teach` and save `stage` (15 cm in front of their mouth). That only tells
+   the calibration where the face will be. Or set `face_box` in `workspace.yaml`.
+3. Empty the chair. Run `uv run calibrate` with the ball: 27 poses over the plate, then 27 in front
+   of the face. Every camera should show up in "samples per camera", and the face camera needs at
+   least 6.
+4. `uv run bebop --mode solid --task "feed me a donut hole" --esp32 /dev/ttyUSB0`, with the judge
+   seated and a hand on the e-stop.
+
 ## Live-tested setup notes
 
 From the hardware session of 2026-11-08 (00:00-01:00), on the real SO-101 through LeRobot 0.4.4, in

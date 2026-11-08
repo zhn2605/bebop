@@ -13,6 +13,8 @@ food_xyz: [210, 0, 15]   # donut hole centre, base frame mm
 food_width_mm: 28        # what close() measures when the jaw tip is on the food
 food_radius_mm: 15
 bowl_rim_z: 40
+mouth_xyz: [390, 0, 270]  # the fake person's mouth: delivery tracks it (core/run.py mouth_xyz)
+present: {bite_mm: 80}    # the fake person can't lean in: the stop-short point is at the food
 # Joint poses (LeRobot deg) for --fake; the real ones are taught into config/poses.yaml. Jaw tip:
 # home (180, 0, 120) pitch -45, stage (180, 0, 280) pitch 0, mouth (330, 0, 280) pitch 0.
 poses:

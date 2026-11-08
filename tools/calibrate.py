@@ -33,7 +33,7 @@ from perception.marker import find_marker
 from perception.overlay import draw
 
 ROOT = Path(__file__).resolve().parent.parent
-CAMS = ("top", "side")
+CAMS = ("top", "side", "face")  # each camera is fitted on the poses it saw
 FENCE = {"x": [150.0, 330.0], "y": [-120.0, 120.0], "z": [10.0, 180.0]}
 
 
@@ -61,6 +61,32 @@ def grid(lo: np.ndarray, hi: np.ndarray, yaw_deg: float = 0.0) -> list[Pose]:
     `fence_yaw_deg`), so the grid lands over the plate wherever it is around the base."""
     poses = _grid(lo, hi)
     return [Pose(from_fence_frame(p.xyz, yaw_deg), p.pitch) for p in poses]
+
+
+def face_grid(centre, half=(70.0, 70.0, 50.0)) -> list[Pose]:
+    """3x3x3 around `centre` with the gripper level (pitch 0, pointing at where the face will be),
+    for the face camera, which sees the plate badly or not at all. Snake order."""
+    c = np.asarray(centre, float)
+    lo, hi = c - half, c + half
+    poses = []
+    for k, z in enumerate(np.linspace(lo[2], hi[2], 3)):
+        xs = np.linspace(lo[0], hi[0], 3)
+        for i, x in enumerate(xs if k % 2 == 0 else xs[::-1]):
+            ys = np.linspace(lo[1], hi[1], 3)
+            for y in ys if i % 2 == 0 else ys[::-1]:
+                poses.append(Pose((float(x), float(y), float(z)), 0.0))
+    return poses
+
+
+def face_centre(arm, ws: dict, poses: dict):
+    """Where the face sweep goes: workspace.yaml `face_box` {x, y, z} centre, else the taught
+    `stage` pose's tip (15 cm in front of the mouth), else None."""
+    box = ws.get("face_box")
+    if box:
+        return [sum(box[a]) / 2 for a in "xyz"]
+    if poses.get("stage"):
+        return arm.kin.fk({k: float(v) for k, v in poses["stage"].items()}, arm.tool).xyz
+    return None
 
 
 def _grid(lo: np.ndarray, hi: np.ndarray) -> list[Pose]:
@@ -189,13 +215,14 @@ def calibrate(
     for k, r in enumerate(records):
         uvs = {n: picked[n][k] for n in CAMS if picked[n][k] is not None}
         print(f"   {k + 1:2d}: " + "  ".join(f"{n} {_fmt(uvs.get(n))}" for n in CAMS))
-        if all(n in uvs for n in CAMS):
+        if uvs:
             samples.append((r["tip"], uvs))
     print("frames saved under data/calib_frames/")
-    print(f"{len(samples)} samples seen by {' and '.join(CAMS)}")
+    seen = {n: sum(n in uvs for _, uvs in samples) for n in CAMS}
+    print("samples per camera: " + ", ".join(f"{n} {k}" for n, k in seen.items()))
     if len(samples) < 8:
         what = "ball HSV range (cameras.yaml ball:)" if ball else "marker HSV range"
-        print(f"need at least 8: check the {what}, the lighting and that both cameras see it")
+        print(f"need at least 8: check the {what}, the lighting and that the cameras see it")
         state.set(stage="FAILED", help=f"only {len(samples)} samples; need 8")
         return None
     cal, kept = robust_fit(samples, size)
@@ -239,8 +266,8 @@ def fit_marker_offset(
     FK points best explain the pixels: through `cal` when the ball already fitted the cameras,
     else through cameras refitted per offset. Seen live: the photo guess (35 mm behind the tips)
     was several cm off, which skewed every target the same way (grabs always came up short)."""
-    rows = [(r["q"], {n: picked[n][k] for n in CAMS}) for k, r in enumerate(records)
-            if all(picked[n][k] is not None for n in CAMS)]
+    rows = [(r["q"], uvs) for k, r in enumerate(records)
+            if len(uvs := {n: picked[n][k] for n in CAMS if picked[n][k] is not None}) >= 1]
     if len(rows) < 8:
         return None
     best = None
@@ -425,14 +452,22 @@ def main() -> None:
         CAMS = tuple(n for n in CAMS if n in cams.names)
         if missing:
             print(f"camera(s) {missing} did not open; check config/cameras.yaml")
-        if missing and CAMS:
-            print(f"fitting {CAMS[0]} alone; triangulation needs both cameras")
+        if len(CAMS) == 1:
+            print(f"fitting {CAMS[0]} alone; triangulation needs two cameras")
         if not CAMS:
             pass
         elif args.check:
             check(arm, motion, cams, look_for, Calibration.load(out), args.here, ws, state)
         else:
             poses = grid(*fence_box(ws), float(ws.get("fence_yaw_deg", 0)))
+            centre = face_centre(arm, ws, motion.poses) if "face" in CAMS else None
+            if centre is not None:
+                poses += face_grid(centre)
+                print(f"face sweep round ({centre[0]:.0f}, {centre[1]:.0f}, {centre[2]:.0f}): "
+                      "keep the chair empty")
+            elif "face" in CAMS:
+                print("no face sweep: teach `stage` (uv run teach) with someone seated, or set "
+                      "face_box in workspace.yaml; delivery then uses the taught poses")
             print(f"{len(poses)} poses; keep clear of the arm. Ctrl+C freezes it.")
             cal = calibrate(arm, motion, cams, cam_cfg, poses, out, state)
             if cal is not None:

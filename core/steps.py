@@ -322,10 +322,149 @@ def _mouth_open_for(run, hold_s: float):
     return done
 
 
+def _toward_base(mouth) -> tuple[float, float, float]:
+    """Unit vector from the mouth straight back toward the arm's base axis, level."""
+    n = math.hypot(mouth[0], mouth[1]) or 1.0
+    return (-mouth[0] / n, -mouth[1] / n, 0.0)
+
+
+def _out(mouth, d, mm: float):
+    return tuple(mouth[i] + d[i] * mm for i in range(3))
+
+
+def _approach_gate(run, mouth0, creeping: bool):
+    """present's gate while the arm moves toward the face. Stops the move (a reason) on: stop;
+    the face lost (also trips stop); the ultrasonic seeing the food within estop_cm of something
+    on two readings in a row (trips stop: the arm then goes home); within stop_cm ("close
+    enough", a normal end); within slow_cm while not creeping yet ("slow zone"); the head moving
+    reaim_mm from where the approach aimed ("head moved")."""
+    pc = run.present
+
+    def gate() -> str | None:
+        if run.stop.is_set():
+            return f"stop: {run.stop.reason}"
+        fs = run.face_state()
+        if not fs.present or fs.looking_away:
+            run.trip_stop("face lost while coming to the mouth")
+            return "face lost"
+        sure = run.food_cm(2)  # two readings in a row: one false echo does nothing
+        if sure is not None and sure <= float(pc.get("estop_cm", 3)):
+            run.trip_stop(f"ultrasonic: food {sure:.1f} cm from the face while moving")
+            return "ultrasonic e-stop"
+        if sure is not None and sure <= float(pc.get("stop_short_mm", 60)) / 10:
+            return "close enough (ultrasonic)"
+        now = run.food_cm(1)
+        if not creeping and now is not None and now <= float(pc.get("slow_cm", 15)):
+            return "slow zone"
+        m = run.mouth_xyz()
+        if m is not None and math.dist(m, mouth0) > float(pc.get("reaim_mm", 30)):
+            return "head moved"
+        return None
+
+    return gate
+
+
+def _bitten(run, near):
+    """done() for _wait: the mouth opened, then closed while at the food (`near()`)."""
+    seen_open = [False]
+
+    def done() -> bool:
+        fs = run.face_state()
+        seen_open[0] = seen_open[0] or fs.mouth_open
+        return seen_open[0] and not fs.mouth_open and near()
+
+    return done
+
+
+def deliver_tracked(run, obj: str, mode: str) -> bool:
+    """Delivery to the tracked mouth; the VLM only verifies. Find a still face -> the stage point
+    stage_mm out from the mouth toward the arm -> wait for an open mouth or "yes" -> slowly toward
+    the mouth (creep once the ultrasonic is within slow_cm), stopping stop_short_mm short: the arm
+    never feeds into the mouth, the person leans in the rest -> hold still (the ultrasonic no
+    longer stops it: the person is meant to come close) until a bite (mouth open, then closed at
+    the food) -> solid: let go; spoon: hold a second -> back out to the stage point -> home ->
+    eaten = the tool is empty (VLM), with chewing seen by the face camera as the second sign."""
+    pc = run.present
+    short = float(pc.get("stop_short_mm", 60))
+    run.arm.tool = "spoon" if mode == "spoon" else ("grasp" if "grasp" in run.kin.tools else "jaw")
+    run.begin_record("deliver", obj, mode)
+    run.enter("LISTENING", goal="deliver", attempt=1, action="looking for the face")
+    if not _wait(run, lambda: run.mouth_xyz() is not None, READY_TIMEOUT_S):
+        raise NeedHelp(f"No still face seen by the face camera within {READY_TIMEOUT_S:.0f} "
+                       "seconds.")
+    mouth = run.mouth_xyz()
+    back = _toward_base(mouth)
+    stage = _out(mouth, back, float(pc.get("stage_mm", 150)))
+    run.motion.fence.around_mouth(stage, mouth)
+    run.state.set(mouth_xyz=[round(v) for v in mouth])
+    run.log.emit("mouth", xyz=mouth, how=run.mouth_track.how)
+    run.enter("MOVING", action="to the front of the face")
+    r = run.do("stage", run.motion.move_to, Pose(stage, 0.0), "slow", "deliver")
+    if not r.ok and r.note.startswith("fence"):  # the straight line from the plate clips the
+        run.do("home", run.motion.home, "slow")    # head zone: come from the base side instead
+        r = run.do("stage", run.motion.move_to, Pose(stage, 0.0), "slow", "deliver")
+    if not r.ok:
+        raise NeedHelp(f"Move to the front of the face failed ({r.note}).")
+    run.yes_evt.clear()
+    run.enter("LISTENING", action="waiting for an open mouth or 'yes'")
+    if not _wait(run, lambda: run.face_state().mouth_open or run.yes_evt.is_set(), READY_TIMEOUT_S):
+        run.do("home", run.motion.home, "slow")
+        raise NeedHelp(f"No open mouth and no \"yes\" within {READY_TIMEOUT_S:.0f} seconds in "
+                       "front of the face.")
+    run.enter("PRESENTING", action="coming to the mouth slowly")
+    speed, reaims = "slow", int(pc.get("reaims", 3))
+    while True:
+        target = _out(mouth, back, short)
+        creeping = speed == "creep"
+        r = run.do("present", run.motion.approach, target, _approach_gate(run, mouth, creeping),
+                   speed, run.food_cm)
+        run.check()
+        why = r.measured.get("stopped_by", "")
+        if why == "slow zone":
+            speed = "creep"
+            run.state.set(action="close to the face: creeping")
+            continue
+        if why == "head moved" and reaims > 0 and (m := run.mouth_xyz()) is not None:
+            reaims -= 1  # back out to the new stage point first, then come in again
+            mouth, back = m, _toward_base(m)
+            stage = _out(mouth, back, float(pc.get("stage_mm", 150)))
+            run.motion.fence.around_mouth(stage, mouth)
+            run.state.set(mouth_xyz=[round(v) for v in mouth], action="the head moved: re-aiming")
+            run.do("stage", run.motion.move_to, Pose(stage, 0.0), "slow", "deliver")
+            continue
+        break
+    run.state.set(action="holding still: lean in and take it")
+
+    def near() -> bool:  # the mouth at the food: the ultrasonic, or the tracked mouth
+        d, m = run.food_cm(1), run.mouth_xyz()
+        food = run.arm.state().tip.xyz
+        return ((d is not None and d <= float(pc.get("bite_cm", 3)))
+                or (m is not None and math.dist(m, food) <= float(pc.get("bite_mm", 35))))
+
+    bitten = _wait(run, _bitten(run, near), float(pc.get("bite_timeout_s", 15)))
+    if bitten:
+        if mode == "solid":
+            run.do("open", run.motion.open, min(run.gripper_max, (run.width or 30) + 15))
+        time.sleep(1.0)  # let them pull back with it (spoon: the lips scrape it off)
+    run.enter("MOVING", action="back out")
+    run.do("retract", run.motion.move_to, Pose(stage, run.arm.state().tip.pitch), "slow", "deliver")
+    run.do("home", run.motion.home, "slow")
+    chewing = _wait(run, lambda: run.face_state().chewing, 4.0)
+    v = run.verify(f"Is the {run.tool_word} empty?")
+    note = "; ".join(["bite seen" if bitten else "no bite",
+                      "chewing" if chewing else "no chewing seen", f"present stopped by {why}"])
+    run.end_record(v, v.ok, note=note)
+    run.log.emit("eaten", ok=v.ok, bitten=bitten, chewing=chewing)
+    return v.ok
+
+
 def deliver(run, obj: str, mode: str) -> bool:
     """The fixed deliver sequence; the VLM only verifies. stage -> wait for an open mouth or a
     "yes" -> present behind the gate -> solid: open once the mouth stayed open 1 s; spoon: hold
-    until the mouth closes (bite) or 8 s -> retract -> verify the tool is empty."""
+    until the mouth closes (bite) or 8 s -> retract -> verify the tool is empty. With a tracked
+    mouth (a calibrated face camera), deliver_tracked instead."""
+    if run.tracking:
+        return deliver_tracked(run, obj, mode)
     run.arm.tool = "spoon" if mode == "spoon" else "jaw"
     for name, what, where in (
         ("stage", "the spot in front of the mouth",

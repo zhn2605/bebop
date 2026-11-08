@@ -35,3 +35,5 @@ face:
   yaw_sign: 1
   pitch_sign: 1
   yaw_offset_deg: 0
+  eyes_mm: 63            # distance between the pupils; gives the face's depth when the side camera
+                         # can't see the mouth. Adults 54-74: measure the judge's for a better guess
