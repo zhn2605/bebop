@@ -16,6 +16,13 @@ marker:   # yellow tape on the gripper, measured live on the C270 (H 18-31, S 12
   hsv_high: [38, 255, 255]
   min_area: 80  # px, at the camera's resolution
 
+# Calibration ball held in the jaws (tools.calibrate). A colour nothing else in view has: not the
+# food, not the marker tape. PLACEHOLDER = a blue ball; measure it under the table lights.
+ball:
+  hsv_low: [100, 120, 60]
+  hsv_high: [130, 255, 255]
+  min_area: 80
+
 # Face signals (perception/face.py). Check signs with `python -m tools.face_check`: turning your head
 # to your left should make yaw positive and looking up should make pitch positive; flip the sign
 # otherwise. If the laptop camera sits off to one side, set yaw_offset_deg to the yaw it reads

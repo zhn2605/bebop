@@ -114,8 +114,11 @@ was frozen (the result is still logged by the caller).
 HSV threshold, largest blob above `min_area`, centroid.
 
 ### perception/calib.py — `Calibration`
-- `fit(samples: list[tuple[Vec3, dict[str, UV]]]) -> Calibration`: DLT per camera (≥ 8 non-coplanar
-  samples), `P: dict[str, 3x4]`, `rms_px: dict[str, float]`.
+- `fit(samples, size) -> Calibration`: per camera a pinhole with square pixels, centred principal
+  point and one radial term (cv2.calibrateCamera, ≥ 6 non-coplanar samples), `P: dict[str, 3x4]`,
+  `K`, `dist`, `rms_px`. `implausible(table_z)` lists why a fit can't be a real camera.
+- `along_ray(name, uv, other, other_uv, z_range)`: the height on `name`'s ray that `other` sees
+  closest to other_uv (top fixes x and y, side only the height).
 - `project(name, xyz) -> UV`, `triangulate({name: UV}) -> Vec3` (two or more cameras, least squares),
   `at_height(name, uv, z) -> Vec3` (one camera, known height), `width_mm(name, box, z) -> float`.
 - `save(path)`, `load(path)`. JSON.
@@ -225,8 +228,9 @@ HELP notifications go to a phone via ntfy.
   `q NAME DEG` moves one joint, `open MM`, `close`, `home`, `torque off`. Space = stop.
 - `tools.teach`: torque off, move by hand, Enter saves `home`, `stage`, `mouth` into `poses.yaml`;
   `--goto NAME`.
-- `tools.calibrate`: visits a grid of ~15 reachable tip poses (from `workspace.yaml`), finds the
-  marker in `top` and `side`, fits, prints RMS px per camera, saves `config/calib.json`;
+- `tools.calibrate`: carries a ball held in the jaws through a 3x3x3 grid at pitch -90 (from
+  `workspace.yaml` calib_box), finds it in `top` and `side`, fits, prints the held-out px and mm,
+  saves `config/calib.json` unless the fit is implausible;
   `--check` projects the current tip into each stream window for a visual check.
 - `tools.face_check`: prints `FaceState` at 5 Hz. `tools.voice_check`: prints partials/finals and
   stop-word hits.

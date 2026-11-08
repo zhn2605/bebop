@@ -21,6 +21,11 @@ BITE_TIMEOUT_S = 8.0
 READY_TIMEOUT_S = 20.0
 MOUTH_OPEN_HOLD_S = 1.0
 WIDE_FACTOR = 1.4  # VLM boxes run loose: escalate only past gripper_max * this, else clamp open
+SIDE_SLACK_PX = 10  # the top box's ray may pass this far outside the side box: still the same piece
+# Hover correction (move_to): re-aim by where top sees the marker vs where the arm put it.
+SERVO_STEPS = 2       # corrections at most
+SERVO_DONE_MM = 3.0   # the offset changed less than this since the last correction: done
+SERVO_MAX_MM = 40.0   # an offset this big is the wrong blob (the food, clutter), not the arm
 
 
 class NeedHelp(Exception):
@@ -67,24 +72,29 @@ def center(box) -> tuple[float, float]:
     return (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
 
 
+def inside(uv, box, slack: float = 0.0) -> bool:
+    return box[0] - slack <= uv[0] <= box[2] + slack and box[1] - slack <= uv[1] <= box[3] + slack
+
+
 def locate(plan, calib, rim_z: float):
-    """(target xyz, width mm) from the plan's pixel boxes: triangulated from the box centres when
-    top and side both see the object, else the top ray at the bowl rim height; (None, None) when
-    top does not see it. The width is the top box's width at the target height."""
+    """(target xyz, width mm) from the plan's pixel boxes; (None, None) when top has no box.
+    The top box centre fixes x and y (from above every piece stands apart). The side box only
+    picks the height along that ray, and only when the ray passes through it; otherwise it boxed
+    another piece (from the side they line up behind each other) and the height is the bowl
+    rim's. So the target always projects to the top box's centre. The width is the top box's
+    width at the target height."""
     boxes = {c: b for c, b in (plan.target or {}).items() if c in calib.names}
     if "top" not in boxes:
         return None, None
+    uv = center(boxes["top"])
+    xyz = calib.at_height("top", uv, rim_z)
     if "side" in boxes:
-        uv = {c: center(boxes[c]) for c in PLAN_CAMS}
-        xyz = calib.triangulate(uv)
-        # Views that disagree (a moved camera, or the side box on another piece; seen live:
-        # 180-490 px) give a point on neither box: trust the top camera at the rim height.
-        off = max(math.dist(calib.project(c, xyz), uv[c]) for c in uv)
-        if off > 40:
-            print(f"top and side disagree by {off:.0f} px: using the top camera alone")
-            xyz = calib.at_height("top", uv["top"], rim_z)
-    else:
-        xyz = calib.at_height("top", center(boxes["top"]), rim_z)
+        p, off = calib.along_ray("top", uv, "side", center(boxes["side"]), (rim_z - 60, rim_z + 60))
+        if inside(calib.project("side", p), boxes["side"], SIDE_SLACK_PX):
+            xyz = p
+        else:
+            print(f"the side box is {off:.0f} px off the top box's ray (another piece?): "
+                  "height from the bowl rim")
     xyz = tuple(round(float(v), 1) for v in xyz)
     return xyz, round(float(calib.width_mm("top", boxes["top"], xyz[2])), 1)
 
@@ -111,9 +121,28 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
     m, args = run.motion, a.args
     if a.name == "move_to":
         pitch = -60.0 if run.mode == "spoon" else -90.0
-        pose = target_pose(args, target, run.hover_dz, pitch, run.kin, run.arm.tool)
-        r = m.move_to(pose, speed=args.get("speed", "normal"))
-        enrich_move(r, pose, run.cameras, run.calib, run.marker_cfg)
+        # Hover correction: the top camera sees the marker and the food alike, so aiming by the
+        # marker's offset cancels most calibration and arm error. aim = target + measured offset.
+        applied, shifts = (0.0, 0.0), []
+        for step in range(SERVO_STEPS + 1):
+            aim = (target[0] + applied[0], target[1] + applied[1], target[2])
+            pose = target_pose(args, aim, run.hover_dz, pitch, run.kin, run.arm.tool)
+            r = m.move_to(pose, speed=args.get("speed", "normal"))
+            enrich_move(r, run)
+            d = hover_offset(r, run.calib)
+            done = d is None or math.dist(d, applied) < SERVO_DONE_MM
+            if not r.ok or done or step == SERVO_STEPS:
+                break
+            if math.hypot(*d) > SERVO_MAX_MM:
+                why = f"top camera sees the marker {math.hypot(*d):.0f} mm off: not trusted"
+                r.note = f"{r.note}; {why}" if r.note else why
+                break
+            applied = d
+            shifts.append([round(v, 1) for v in d])
+        if shifts:
+            r.measured["servo_mm"] = shifts
+            why = f"re-aimed {math.hypot(*shifts[-1]):.0f} mm by the top camera"
+            r.note = f"{r.note}; {why}" if r.note else why
         return r
     if a.name == "descend_until_contact":
         return m.descend_until_contact(float(args.get("max_dz", 60)), load=args.get("load"),
@@ -163,30 +192,51 @@ def fresh_frame(cameras, cam: str, after: float, timeout_s: float = 0.6):
         time.sleep(0.02)
 
 
-def enrich_move(r: ActionResult, pose: Pose, cameras, calib, marker_cfg: dict) -> None:
-    """Adds the camera metrics of a move_to: predicted tip_uv per camera, the measured marker_uv,
-    the error px between them, and mm_from_marker (the triangulated marker against the target)."""
+def marker_goal(run):
+    """Where the marker should be: FK of the commanded joints at the tape (robot.yaml
+    tool_offsets.marker), so sag and FK error count as error too."""
+    tool = "marker" if "marker" in run.kin.tools else run.arm.tool
+    return run.kin.fk(run.arm.state().goal, tool).xyz
+
+
+def hover_offset(r: ActionResult, calib):
+    """(dx, dy) mm: where the arm put the marker minus where the top camera sees it, at the
+    marker's height; None when top didn't see it. Adding it to a target the top camera found
+    lands the arm where the camera saw that target."""
+    seen, goal = (r.measured.get("marker_uv") or {}).get("top"), r.predicted.get("marker_xyz")
+    if seen is None or goal is None or "top" not in calib.names:
+        return None
+    x, y, _ = calib.at_height("top", seen, goal[2])
+    return goal[0] - x, goal[1] - y
+
+
+def enrich_move(r: ActionResult, run) -> None:
+    """Adds the camera metrics of a move_to: where each camera should see the marker (tip_uv, from
+    marker_goal), where it does (marker_uv), the px between them, and mm_from_marker (the
+    triangulated marker against marker_goal)."""
     from perception.marker import find_marker
 
+    cameras, calib = run.cameras, run.calib
     after = r.t1 or time.time()
+    goal = marker_goal(run)
     tip_uv, marker_uv, px = {}, {}, {}
     for cam in PLAN_CAMS:
         if cam not in calib.names or cam not in cameras.names:
             continue
-        tip_uv[cam] = [round(float(v), 1) for v in calib.project(cam, pose.xyz)]
+        tip_uv[cam] = [round(float(v), 1) for v in calib.project(cam, goal)]
         # The predicted pixel steers the detector past yellow clutter elsewhere in the frame.
-        uv = find_marker(fresh_frame(cameras, cam, after), marker_cfg, near=tuple(tip_uv[cam]))
+        uv = find_marker(fresh_frame(cameras, cam, after), run.marker_cfg, near=tuple(tip_uv[cam]))
         if uv is not None:
             marker_uv[cam] = [round(float(v), 1) for v in uv]
             px[cam] = round(math.dist(tip_uv[cam], marker_uv[cam]), 1)
-    r.predicted.setdefault("tip_xyz", [round(v, 1) for v in pose.xyz])
+    r.predicted["marker_xyz"] = [round(float(v), 1) for v in goal]
     r.predicted["tip_uv"] = tip_uv
     r.measured["marker_uv"] = marker_uv
     r.error["px"] = px
     if len(marker_uv) >= 2:
         seen = [round(float(v), 1) for v in calib.triangulate(marker_uv)]
         r.measured["marker_xyz"] = seen
-        r.error["mm_from_marker"] = round(math.dist(seen, pose.xyz), 1)
+        r.error["mm_from_marker"] = round(math.dist(seen, goal), 1)
 
 
 def position_error_mm(results: list[ActionResult]) -> float | None:

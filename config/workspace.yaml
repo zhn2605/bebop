@@ -7,7 +7,9 @@
 fence: {r: [90, 600], z: [-30, 300]}
 # The calibration sweep still needs a rectangle to visit: this box, turned by fence_yaw_deg of
 # shoulder_pan toward where the plate sits (live 2026-11-08: the plate is at pan ~80-100).
-calib_box: {x: [130, 320], y: [-150, 150], z: [-30, 150]}
+# z: the bottom layer is the food's centre height (the ball must clear the plate), the top a
+# bit above the hover; the fit is only trusted between them.
+calib_box: {x: [130, 320], y: [-150, 150], z: [-5, 75]}
 fence_yaw_deg: 80
 # Around the user's head: forbidden except inside the stage -> mouth corridor while delivering.
 # PLACEHOLDER: set it around the seated user's head once `mouth` is taught.
