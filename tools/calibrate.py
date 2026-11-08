@@ -158,7 +158,7 @@ def calibrate(
         tip = tuple(float(c) for c in arm.state().tip.xyz)
         seen = "  ".join(f"{n} {len(blobs.get(n, []))} blobs" for n in CAMS)
         print(f"{head} tip ({tip[0]:.0f},{tip[1]:.0f},{tip[2]:.0f})  {seen}")
-        records.append({"tip": tip, "blobs": blobs})
+        records.append({"tip": tip, "q": dict(arm.state().q), "blobs": blobs})
         for n in CAMS:
             state.annotate(n, [
                 {"type": "point", "uv": uv, "color": "green" if k == 0 else "orange",
@@ -168,6 +168,15 @@ def calibrate(
     state.set(action="home, then fit")
     home(motion)
     picked = {n: pick_moving(records, n) for n in CAMS}
+    fitted = fit_marker_offset(arm.kin, records, picked)
+    if fitted is not None:
+        score, off = fitted
+        print(f"tape offset fitted: {off} mm in the gripper frame (was {arm.kin.tools['marker']}),"
+              f" median error {score:.1f} px; saved to config/robot.yaml")
+        arm.kin.tools["marker"] = off
+        save_marker_offset(off)
+        for r in records:
+            r["tip"] = tuple(float(c) for c in arm.kin.fk(r["q"], "marker").xyz)
     samples = []
     for k, r in enumerate(records):
         uvs = {n: picked[n][k] for n in CAMS if picked[n][k] is not None}
@@ -197,6 +206,38 @@ def calibrate(
     for n in CAMS:
         state.annotate(n, [])
     return cal
+
+
+def fit_marker_offset(kin, records: list[dict], picked: dict) -> tuple[float, list] | None:
+    """(median px error, [x, 0, z]): where the tape sits on the gripper, found as the offset whose
+    FK points best explain the pixels. Seen live: the photo guess (35 mm behind the tips) was
+    several cm off, which skewed every target the same way (grabs always came up short)."""
+    rows = [(r["q"], {n: picked[n][k] for n in CAMS}) for k, r in enumerate(records)
+            if all(picked[n][k] is not None for n in CAMS)]
+    if len(rows) < 8:
+        return None
+    best = None
+    for ox in range(-160, 21, 5):
+        for oz in range(-40, 41, 10):
+            kin.tools["_try"] = [float(ox), 0.0, float(oz)]
+            samples = [(kin.fk(q, "_try").xyz, uvs) for q, uvs in rows]
+            cal = Calibration.fit(samples)
+            score = float(np.median([np.hypot(*np.subtract(cal.project(n, xyz), uv))
+                                     for xyz, uvs in samples for n, uv in uvs.items()]))
+            if best is None or score < best[0]:
+                best = (score, [float(ox), 0.0, float(oz)])
+    kin.tools.pop("_try", None)
+    return best
+
+
+def save_marker_offset(off: list) -> None:
+    import re
+
+    p = ROOT / "config" / "robot.yaml"
+    text = re.sub(r"(?m)^(\s*marker:\s*)\[[^\]]*\]([^\n]*)$",
+                  lambda m: f"{m.group(1)}[{off[0]:.1f}, {off[1]:.1f}, {off[2]:.1f}]"
+                            "   # yellow tape, fitted by tools.calibrate", p.read_text(), count=1)
+    p.write_text(text)
 
 
 def robust_fit(samples: list) -> Calibration:

@@ -26,7 +26,7 @@ from core import steps
 from core.notify import Notifier
 from core.state import RUNS_DIR, EventLog, State
 from core.steps import Abort, NeedHelp
-from core.types import ActionResult, FaceState, Flag, Stopped, Verdict
+from core.types import JOINTS, ActionResult, FaceState, Flag, Stopped, Verdict
 
 CONFIG = Path("config")
 LED = {"READY": "green", "LISTENING": "green", "THINKING": "yellow", "MOVING": "yellow",
@@ -312,7 +312,7 @@ class Runner:
         if self.cur is not None:
             self.state.update_attempt(self.cur, results=self.results)
         self.log.emit("action", attempt=self.cur, result=r)
-        if r.name == "move_to":
+        if r.name in ("move_to", "close") and r.predicted.get("tip_uv"):
             self.state.set(err_px=r.error.get("px"),
                            err_mm=r.error.get("mm_from_marker", r.error.get("xyz_mm")))
             self.show(steps.move_annotations(r))
@@ -350,16 +350,50 @@ class Runner:
 
     def help(self, reason: str) -> None:
         """HELP: ping the caregiver, wait for 'continue' or the dashboard (stop raises)."""
+        reason = f"{reason} To try again, press Resume or say \"continue\"."
         self.enter("HELP", help=reason, action="waiting for the caregiver")
         self.notifier.help(f"{reason}. Say 'continue' or press Resume on the dashboard.", self.url)
         if self.args.task:  # one request from the command line: report and exit, never linger
             raise Abort(reason)
-        print(f"HELP: {reason}. Resume on the dashboard or say 'continue'.")
+        print(f"HELP: {reason}")
         self.resume_evt.clear()
         while not self.resume_evt.wait(0.2):
             self.check()
         self.resume_evt.clear()
         self.state.set(help="")
+
+    def _wait_continue(self, msg: str, action: str) -> None:
+        self.enter("HELP", help=msg, action=action)
+        print(f"HELP: {msg}")
+        self.resume_evt.clear()
+        while not self.resume_evt.wait(0.2):
+            self.check()
+        self.resume_evt.clear()
+
+    def teach_pose(self, name: str, what: str, where: str) -> None:
+        """A delivery pose is missing: teach it here instead of failing on every resume. 'continue'
+        once the caregiver holds the arm (the joints go limp, the gripper keeps the food), then
+        again once it is in place; the pose is saved to config/poses.yaml."""
+        self._wait_continue(f"Position not set: {what}. Hold the arm, then press Resume or say "
+                            "\"continue\". The arm then goes loose to be moved by hand. The gripper "
+                            "keeps holding the food.", f"setting {what}")
+        self.arm.torque(False, list(JOINTS))
+        try:
+            self._wait_continue(f"Move the gripper {where}. Then press Resume or say "
+                                "\"continue\" to save the position.", f"setting {what}")
+        finally:
+            self.arm.torque(True, list(JOINTS))
+        q = self.arm.state().q
+        self.motion.poses[name] = {j: round(float(q[j]), 1) for j in JOINTS}
+        self.motion._segment()
+        path = CONFIG / "poses.yaml"
+        poses = (yaml.safe_load(path.read_text()) or {}) if path.is_file() else {}
+        poses[name] = self.motion.poses[name]
+        path.write_text("# Taught joint poses, LeRobot degrees (tools.teach or the run's teach gate).\n"
+                        + yaml.safe_dump(poses, default_flow_style=None, sort_keys=False))
+        self.log.emit("taught", name=name, q=self.motion.poses[name])
+        self.state.set(help="")
+        print(f"Saved position: {what}.")
 
     def task(self, obj: str, mode: str) -> None:
         """acquire then deliver. A failed goal goes through HELP and runs again; a stop goes through
@@ -369,8 +403,9 @@ class Runner:
         self.state.set(task=obj, mode=mode)
         self.log.emit("task", object=obj, mode=mode)
         goals = (
-            (lambda: steps.acquire(self), f"{self.max_attempts} attempts at {obj} failed"),
-            (lambda: steps.deliver(self, obj, mode), f"the {self.tool_word} is not empty"),
+            (lambda: steps.acquire(self), f"Pickup of {obj} failed after {self.max_attempts} tries."),
+            (lambda: steps.deliver(self, obj, mode),
+             f"Food still in the {self.tool_word} after delivery."),
         )
         try:
             for run_goal, failed in goals:

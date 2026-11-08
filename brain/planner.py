@@ -203,8 +203,8 @@ class Planner:
                   if (ctx.get("images") or {}).get(cam)}
         if not images:
             return _escalation(
-                "no top or side camera image (is another bebop or tool still running and holding the "
-                "cameras? check the camera lines at startup)"
+                "No image from the top or side camera. Another program may hold the cameras; "
+                "close it and restart."
             )
         caps = ctx.get("capabilities") or {}
         ranges = {
@@ -224,9 +224,9 @@ class Planner:
                 lambda args: parse_plan(args, ranges, sizes))
         except BackendError as e:
             self._emit("vlm_error", call="plan", error=str(e))
-            return _escalation(f"the VLM failed: {e}")
+            return _escalation(f"Failed to get a response from the vision model ({e}).")
         if plan is None:
-            plan = _escalation(f"the plan was invalid twice: {problem}")
+            plan = _escalation(f"Vision model returned an invalid plan twice ({problem}).")
         plan.cost_usd, plan.latency_s = cost, latency
         return plan
 

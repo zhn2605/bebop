@@ -62,7 +62,8 @@ class Motion:
     # --- helpers ----------------------------------------------------------------------------------
 
     def _speed(self, speed: str) -> float:
-        return self.arm.speed * (self.arm.slow_factor if speed == "slow" else 1.0)
+        factor = {"slow": self.arm.slow_factor, "creep": self.arm.slow_factor * 0.5}
+        return self.arm.speed * factor.get(speed, 1.0)
 
     def _segment(self) -> None:
         """Deliver corridor from the taught stage and mouth poses with the active tool."""
@@ -172,9 +173,9 @@ class Motion:
         load: float | None = None,
         expect_z: float | None = None,
     ) -> None:
-        """Down 5 mm at a time at slow speed until a joint load rises `load` (default contact_load)
-        above its value at the start, `max_dz` is done, or the tip is at the fence floor (the last
-        step is clamped to it). `expect_z` = predicted contact height."""
+        """One smooth, slow move along the tool axis toward the food until a joint load rises
+        `load` (default contact_load) above its value at the start, `max_dz` is done, or the tip is
+        at the grasp floor. `expect_z` = predicted contact height."""
         limit = float(load if load is not None else self.contact_load)
         st = self.arm.state()
         a, base = st.tip, st.load
@@ -185,36 +186,32 @@ class Motion:
         # toward the food instead of dropping sideways onto it. dz = distance along that axis.
         d = approach(a.pitch, math.atan2(a.xyz[1], a.xyz[0]))
         down = max(-d[2], 0.2)  # height lost per mm along the axis
-        dz, peak, contact, at_floor = 0.0, 0.0, False, False
-        while dz < max_dz - 1e-6:
-            step = min(5.0, max_dz - dz, (a.xyz[2] - floor) / down - dz)
-            if step <= 1e-6:
-                at_floor = True
-                break
-            s = dz + step
-            tr = self._go(
-                r,
-                Pose(tuple(a.xyz[i] + d[i] * s for i in range(3)), a.pitch, a.roll),
-                "slow",
-                "acquire",
-            )
-            if tr is None:
-                break
-            dz += step
-            now = self.arm.state().load
-            joint = max(JOINTS, key=lambda j: abs(now[j] - base[j]))
-            rise = abs(now[joint] - base[joint])
-            peak = max(peak, rise)
-            if rise > limit:
-                contact = True
-                break
-        z = self.arm.state().tip.xyz[2]
-        r.measured.update(contact_z=_r(z), max_load=_r(peak), contact=contact, dz=_r(dz))
+        length = max(0.0, min(max_dz, (a.xyz[2] - floor) / down))
+        peak, joint = 0.0, ""
+
+        def gate() -> str | None:  # every tick of the move: freeze on a firm push
+            nonlocal peak, joint
+            now = self.arm.last_load
+            j = max(JOINTS, key=lambda k: abs(now[k] - base[k]))
+            peak = max(peak, abs(now[j] - base[j]))
+            if abs(now[j] - base[j]) > limit:
+                joint = j
+                return "contact"
+            return None
+
+        tr = None
+        if length > 1e-6:
+            end = Pose(tuple(a.xyz[i] + d[i] * length for i in range(3)), a.pitch, a.roll)
+            tr = self._go(r, end, "creep", "acquire", gate)
+        contact = bool(tr and tr.stopped and self.arm.halt_reason == "contact")
+        tip = self.arm.state().tip.xyz
+        dz = sum((tip[i] - a.xyz[i]) * d[i] for i in range(3))
+        r.measured.update(contact_z=_r(tip[2]), max_load=_r(peak), contact=contact, dz=_r(dz))
         if contact:
             r.measured["contact_joint"] = joint
-        r.error["z_mm"] = _r(z - r.predicted["contact_z"])
+        r.error["z_mm"] = _r(tip[2] - r.predicted["contact_z"])
         if not contact and r.ok:
-            r.note = "reached floor, no contact" if at_floor else "no contact"
+            r.note = "reached floor, no contact" if length < max_dz - 1e-6 else "no contact"
 
     @_action
     def open(self, r: ActionResult, width_mm: float) -> None:
@@ -260,7 +257,7 @@ class Motion:
         """Joint move to a taught pose; the tip path is held to the transit rule."""
         q = self.poses.get(name)
         if not q:
-            r.ok, r.note = False, f"pose '{name}' not taught (python -m tools.teach)"
+            r.ok, r.note = False, f"pose '{name}' not taught: run `uv run teach stage mouth` with the person seated"
             return
         q = {j: float(q[j]) for j in JOINTS}
         target = self.kin.fk(q, self.arm.tool).xyz
@@ -321,7 +318,7 @@ class Motion:
         short = float(pc.get("stop_short_mm", 50))
         r.predicted["stop_short_mm"] = short
         if "stage" not in self.poses or "mouth" not in self.poses:
-            r.ok, r.note = False, "stage/mouth not taught (python -m tools.teach)"
+            r.ok, r.note = False, "stage/mouth not taught: run `uv run teach stage mouth` with the person seated"
             return
         self._segment()
         tool = self.arm.tool

@@ -49,15 +49,17 @@ gripper:
   open_mm_at_100: 60.0    # PLACEHOLDER, measure
   max_mm: 55.0            # widest object the orchestrator will try to grasp
   close_load: 0.3         # close_gripper stops when the gripper load passes this fraction
-  gap_dir: [0, 0, 1]      # fixed jaw -> moving jaw in the gripper frame (z = up when level at roll 0);
-                          # solid grabs aim the gap's middle at the food. Wrong side: [0, 0, -1]
+  gap_dir: [0, -1, 0]     # fixed jaw -> moving jaw in the gripper frame (y = the arm's left looking
+                          # out along the gripper); solid grabs aim the gap's middle at the food.
+                          # Live: the jaws sit side by side, the moving one on the arm's right.
+                          # If the grab lands outside the moving jaw: [0, 1, 0]
   speed_pct_s: 100        # gripper speed cap, LeRobot units per second
 
 # Tool tips in the gripper frame (mm): origin at gripper_frame_link (LeRobot's TCP, between the jaw
 # tips), x along the wrist_roll axis away from the arm, y left, z up when pitch = roll = 0.
 tool_offsets:
   jaw: [0.0, 0.0, 0.0]
-  marker: [-35.0, 0.0, 0.0]   # yellow tape wrapped round the gripper ~35 mm behind the jaw tips (ESTIMATE from a photo, measure)
+  marker: [-45.0, 0.0, 0.0]   # yellow tape, fitted by tools.calibrate
   spoon: [90.0, 0.0, -20.0]   # PLACEHOLDER, measure the spoon bowl centre with the spoon strapped in
 
 # Planar link geometry, mm, derived from the joint origins in so101_new_calib.urdf
