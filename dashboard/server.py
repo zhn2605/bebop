@@ -39,8 +39,9 @@ class Hub:
         self.names: list[str] = []
         self.frames: dict[str, tuple[int, bytes]] = {}
         self.controls: list[str] = []
-        self.pending: list[str] = []
+        self.pending: list[list[str]] = []  # [command, argument] pairs
         self.seq = 0
+        self._whisper = None
 
     def push(self, body: dict) -> dict:
         """Takes one push. The reply: the presses queued since the last push and how many attempts
@@ -74,14 +75,14 @@ class Hub:
     def live(self) -> bool:
         return self.pid is not None and time.time() - self.t < LIVE_S
 
-    def press(self, cmd: str) -> str | None:
-        """Queues a press for the connected program; the reason when there is none to take it."""
+    def press(self, cmd: str, arg: str = "dashboard") -> str | None:
+        """Queues a press (the program calls controls[cmd](arg)); the reason when nothing takes it."""
         with self._lock:
             if not self.live():
                 return "nothing is connected"
             if cmd not in self.controls:
                 return f"{self.source} has no {cmd}"
-            self.pending.append(cmd)
+            self.pending.append([cmd, arg])
             return None
 
     def snapshot(self) -> dict:
@@ -103,6 +104,25 @@ class Hub:
 
     def frame(self, cam: str) -> tuple[int, bytes] | None:
         return self.frames.get(cam)
+
+    def transcribe(self, audio: bytes) -> str:
+        """Speech in any container the browser records (webm/ogg/mp4, decoded by PyAV) -> text,
+        with the listener's whisper model, loaded on first use."""
+        import io
+
+        import yaml
+
+        from voice.listener import _PROMPT, whisper_model
+
+        with self._lock:
+            if self._whisper is None:
+                p = ROOT / "config" / "brain.yaml"
+                voice = ((yaml.safe_load(p.read_text()) or {}).get("voice") or {}) if p.is_file() else {}
+                self._whisper = whisper_model(voice.get("whisper_model", "base.en"))
+            model = self._whisper
+        segments, _ = model.transcribe(io.BytesIO(audio), beam_size=1, language="en",
+                                       condition_on_previous_text=False, initial_prompt=_PROMPT)
+        return " ".join(s.text.strip() for s in segments).strip()
 
 
 def make_app(hub: Hub, runs_dir: str | Path = RUNS_DIR):
@@ -166,6 +186,29 @@ def make_app(hub: Hub, runs_dir: str | Path = RUNS_DIR):
     @app.post("/release")
     def release():
         return control("release")
+
+    @app.post("/say")
+    async def say(request: Request):
+        """Typed or transcribed text, handled like a heard utterance: a request when idle, "yes"
+        at the stage pose, "continue" in HELP/STOPPED."""
+        text = str((await request.json()).get("text", "")).strip()[:500]
+        if not text:
+            raise HTTPException(400, "empty text")
+        why = hub.press("say", text)
+        if why:
+            raise HTTPException(503, why)
+        return {"ok": True, "text": text}
+
+    @app.post("/transcribe")
+    async def transcribe(request: Request):
+        audio = await request.body()
+        if not audio:
+            raise HTTPException(400, "no audio")
+        try:
+            text = await asyncio.to_thread(hub.transcribe, audio)
+        except Exception as e:  # noqa: BLE001  (a missing model or bad clip is the page's to show)
+            raise HTTPException(500, f"transcription failed: {type(e).__name__}: {e}") from e
+        return {"text": text}
 
     return app
 

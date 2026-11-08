@@ -136,7 +136,8 @@ class Runner:
         if not self.args.no_dashboard:
             from dashboard.client import Publisher
 
-            controls = {"stop": self.trip_stop, "resume": self.resume, "release": self.release}
+            controls = {"stop": self.trip_stop, "resume": self.resume, "release": self.release,
+                        "say": self.on_utterance}
             self.publisher = Publisher("bebop", self.state, self.cameras, controls=controls,
                                        port=self.args.port).start()
         if self.args.voice or not self.args.task:

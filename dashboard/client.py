@@ -43,7 +43,8 @@ def spawn(port: int) -> bool:
 
 
 class Publisher:
-    """`controls` maps "stop" / "resume" / "release" to a callable taking a reason string. With
+    """`controls` maps "stop" / "resume" / "release" / "say" to a callable taking one string (the
+    reason, or for "say" the text). With
     `arm`, the arm state goes into `state` at 5 Hz; with `calib` too, every stream shows where the
     calibration puts the FK tip (hollow magenta). `cameras` may be None (no streams)."""
 
@@ -124,10 +125,10 @@ class Publisher:
                     continue
                 if reply.get("attempts_n", self.sent_n) != self.sent_n:
                     self.sent_attempts = None  # the page lost them (restarted): resend
-                for cmd in reply.get("commands", []):
+                for cmd, arg in reply.get("commands", []):
                     fn = self.controls.get(cmd)
                     if fn is not None:
-                        fn("dashboard")
+                        fn(arg)
             except Exception as e:  # noqa: BLE001  (the dashboard must never take the arm down)
                 print(f"dashboard: {type(e).__name__}: {e}")
                 time.sleep(1.0)
