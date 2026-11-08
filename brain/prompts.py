@@ -58,7 +58,9 @@ Answer fields:
 - lesson: one sentence worth remembering for later attempts; "" on the first attempt.
 - escalate: true, with escalate_reason and no actions, when the piece is wider than the gripper's
   max opening, a person or a hand is in the workspace, the bowl or the food is missing or moved, the
-  food cannot be found, the scene makes no sense, or another try cannot help.
+  food cannot be found, the scene makes no sense, or another try cannot help. Never escalate
+  because a piece looks far or hard to reach: the arm tries every tool pitch itself and says
+  so in its numbers when a point is truly out of reach.
 
 Reading the previous attempts' metrics: close measured width_mm near 0 means the jaws closed on
 nothing (the target was off, or the jaws stopped above the piece); descend_until_contact contact_z

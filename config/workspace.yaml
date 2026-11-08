@@ -4,7 +4,7 @@
 # acquire: the tip may go anywhere the arm can physically reach: a ring around the base axis
 # (r = distance from the pan axis, mm) between the heights below. Nothing is refused before an
 # attempt except the head zone and the table; IK's "unreachable" is the only other stop.
-fence: {r: [90, 420], z: [-30, 160]}
+fence: {r: [90, 600], z: [-30, 300]}
 # The calibration sweep still needs a rectangle to visit: this box, turned by fence_yaw_deg of
 # shoulder_pan toward where the plate sits (live 2026-11-08: the plate is at pan ~80-100).
 calib_box: {x: [130, 320], y: [-150, 150], z: [-30, 150]}

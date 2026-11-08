@@ -14,9 +14,6 @@ from collections.abc import Callable
 from core.types import GRIPPER, JOINTS, ActionResult, Pose, Stopped, TrackResult, Unreachable
 
 
-# Tool pitches move_to falls back to, nearest the plan's first (-90 = straight down, 0 = level).
-PITCHES = tuple(range(-90, -10, 5))
-
 
 def _lerp(a, b, s: float) -> tuple:
     return tuple(a[i] + (b[i] - a[i]) * s for i in range(len(a)))
@@ -102,21 +99,27 @@ class Motion:
                 r.ok, r.note = False, f"fence: {why}"
                 return None
         try:
-            legs = [self.kin.ik(pose, self.arm.tool, st.q)]
-            if self._path_reason(st.q, legs[0], stage if start_ok else "transit"):
+            q_end, used = self.kin.ik_any_pitch(pose, self.arm.tool, st.q)
+            legs = [q_end]
+            if self._path_reason(st.q, q_end, stage if start_ok else "transit"):
                 legs, seed = [], st.q
                 for i in range(1, 7):
                     s = i / 6
                     wp = Pose(
-                        _lerp(a.xyz, pose.xyz, s),
-                        a.pitch + (pose.pitch - a.pitch) * s,
-                        a.roll + (pose.roll - a.roll) * s,
+                        _lerp(a.xyz, used.xyz, s),
+                        a.pitch + (used.pitch - a.pitch) * s,
+                        a.roll + (used.roll - a.roll) * s,
                     )
-                    seed = self.kin.ik(wp, self.arm.tool, seed)
+                    seed, _ = self.kin.ik_any_pitch(wp, self.arm.tool, seed)
                     legs.append(seed)
         except Unreachable as e:
             r.ok, r.note = False, f"unreachable: {e}"
             return None
+        if used.pitch != pose.pitch:
+            r.predicted["pitch"] = _r(used.pitch)
+            note = f"pitch {pose.pitch:.0f} unreachable here, used {used.pitch:.0f}"
+            if note not in r.note:
+                r.note = f"{r.note}; {note}" if r.note else note
         err, load, dur = 0.0, 0.0, 0.0
         for q in legs:
             tr = self.arm.move_joints(q, 0.0, self.pause, self._speed(speed), gate)
@@ -155,34 +158,10 @@ class Motion:
     def move_to(
         self, r: ActionResult, pose: Pose, speed: str = "normal", stage: str = "acquire"
     ) -> None:
-        asked = pose.pitch
-        pose = self.reachable_pitch(pose)
         r.predicted.update(tip_xyz=_r(pose.xyz), pitch=_r(pose.pitch))
         tr = self._go(r, pose, speed, stage)
         if tr is not None:
             self._measure(r, tr, pose.xyz)
-        if pose.pitch != asked:
-            note = f"pitch {asked:.0f} unreachable here, used {pose.pitch:.0f}"
-            r.note = f"{note}; {r.note}" if r.note else note
-
-    def reachable_pitch(self, pose: Pose) -> Pose:
-        """`pose`, or the same point at the nearest pitch in PITCHES that IK reaches: a plan's
-        straight-down approach must not cost an attempt when a tilted one gets there (seen live:
-        two of three attempts refused at pitch -90, the third reached at -60). Unchanged when no
-        pitch works; the move then reports the requested pitch's reason."""
-        try:
-            self.kin.ik(pose, self.arm.tool)
-            return pose
-        except Unreachable:
-            pass
-        for p in sorted(PITCHES, key=lambda p: abs(p - pose.pitch)):
-            cand = Pose(pose.xyz, float(p), pose.roll)
-            try:
-                self.kin.ik(cand, self.arm.tool)
-                return cand
-            except Unreachable:
-                continue
-        return pose
 
     @_action
     def descend_until_contact(

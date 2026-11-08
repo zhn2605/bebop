@@ -104,6 +104,27 @@ class Kinematics:
             pts.append((r * math.cos(yaw), r * math.sin(yaw), z + self.base_z))
         return [*pts, self.fk(q, tool).xyz]
 
+    def ik_any_pitch(
+        self, pose: Pose, tool: str = "jaw", q_seed: dict | None = None,
+        lo: float = -120.0, hi: float = 0.0,
+    ) -> tuple[dict, Pose]:
+        """IK at `pose`, else at the tool pitch nearest it (1 deg steps within [lo, hi]) that
+        reaches the point: the pitch is a preference, never a reason not to move. Returns the
+        joints and the pose actually used. Unreachable only when no pitch reaches the point."""
+        try:
+            return self.ik(pose, tool, q_seed), pose
+        except Unreachable as e:
+            first = e
+        for k in range(1, int(hi - lo) + 1):
+            for p in (pose.pitch - k, pose.pitch + k):
+                if lo <= p <= hi:
+                    cand = Pose(pose.xyz, float(p), pose.roll)
+                    try:
+                        return self.ik(cand, tool, q_seed), cand
+                    except Unreachable:
+                        continue
+        raise Unreachable(f"{first}; no tool pitch from {lo:.0f} to {hi:.0f} reaches it")
+
     def ik(self, pose: Pose, tool: str = "jaw", q_seed: dict | None = None) -> dict:
         """Joint solution (LeRobot deg) inside the limits, closest to `q_seed`, else elbow-up."""
         x, y, z = pose.xyz
