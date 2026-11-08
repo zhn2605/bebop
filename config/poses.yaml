@@ -6,6 +6,6 @@
 #
 # home set live 2026-11-08: compact, gripper hanging 7 cm above the table in front of the base
 # (FK tip ~ (115, 0, 70) mm, pitch -71).
-home:  {shoulder_pan: 80.0, shoulder_lift: -64.0, elbow_flex: 52.0, wrist_flex: 83.0, wrist_roll: 0.0}  # pan = fence_yaw_deg
+home:  {shoulder_pan: 0.0, shoulder_lift: -64.0, elbow_flex: 52.0, wrist_flex: 83.0, wrist_roll: 0.0}  # facing straight ahead
 # stage: {shoulder_pan: 0.0, shoulder_lift: 0.0, elbow_flex: 0.0, wrist_flex: 0.0, wrist_roll: 0.0}
 # mouth: {shoulder_pan: 0.0, shoulder_lift: 0.0, elbow_flex: 0.0, wrist_flex: 0.0, wrist_roll: 0.0}

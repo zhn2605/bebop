@@ -1,6 +1,6 @@
 # SO-101 follower arm (hw/arm.py, motion/kinematics.py). Angles are LeRobot degrees (use_degrees=True):
 # 0 deg = the middle of the range recorded in calibration/feeder_arm.json, not a physical pose.
-port: /dev/ttyACM0
+port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6057664-if00   # the arm's adapter by name, any USB port
 id: feeder_arm
 calibration_dir: calibration
 max_relative_target: 15.0  # deg per command (float!); LeRobot clamps each goal to present +- this.
@@ -9,12 +9,14 @@ max_relative_target: 15.0  # deg per command (float!); LeRobot clamps each goal 
 pid: {P_Coefficient: 32, I_Coefficient: 0, D_Coefficient: 32}  # servo gains; LeRobot's P=16 sags
 # Where the arm settles with torque off (read live 2026-11-08: lift at its back stop, elbow and
 # wrist folded). disconnect() moves here slowly before torque goes off, so nothing drops.
-rest_pose: {shoulder_pan: 80.0, shoulder_lift: -104.0, elbow_flex: 97.0, wrist_flex: 86.0, wrist_roll: 0.0}  # pan = fence_yaw_deg
+rest_pose: {shoulder_pan: 0.0, shoulder_lift: -104.0, elbow_flex: 97.0, wrist_flex: 86.0, wrist_roll: 0.0}  # facing straight ahead
 
 speed_deg_s: 60       # cap on any joint's peak speed; move durations are raised to respect it
 slow_factor: 0.4      # "slow" moves (descend, close, present) run at speed_deg_s * slow_factor
 hz: 50                # interpolation rate
 pause_timeout_s: 30   # a pause longer than this becomes a stop
+collision_lag_deg: 8   # a joint this far behind its goal ...
+collision_load: 0.35  # ... while loaded above this for 3 ticks = collision: the move freezes
 contact_load: 0.3     # load rise (0..1) that counts as contact; 0.12 fired on the elbow's own load
                       # change 5 mm into every descent (seen live), so grabs closed 3-5 cm too high
 track_err_deg: 6      # |goal - present| above this, with load above contact_load, = contact

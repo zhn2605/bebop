@@ -273,7 +273,9 @@ class Arm:
         ]
         dur = max([float(duration_s), 1.0 / self.hz, *need])
         wall, dt = self._wall(dur), 1.0 / self.hz
-        t0, held, max_load = time.monotonic(), 0.0, 0.0
+        t0, held, max_load, jam = time.monotonic(), 0.0, 0.0, 0
+        jam_deg = float(self.cfg.get("collision_lag_deg", 8.0))
+        jam_load = float(self.cfg.get("collision_load", 0.35))
         pos, goal, self.peak_load = start, dict(start), {m: 0.0 for m in MOTORS}
         while True:
             tick = time.monotonic()
@@ -296,6 +298,14 @@ class Arm:
             self.last_load = load
             self._peak(load)
             max_load = max([max_load] + [abs(load[j]) for j in JOINTS])
+            # A joint far behind its goal while pushing hard has hit something: freeze instead of
+            # grinding on (seen live: a calibration move into the table broke the wrist).
+            lag = max([abs(goal[k] - pos[k]) for k in target if k in JOINTS] + [0.0])
+            jam = jam + 1 if lag > jam_deg and max(abs(load[j]) for j in JOINTS) > jam_load else 0
+            if jam >= 3:
+                self.freeze()
+                self.halt_reason = "collision"
+                return TrackResult(lag, max_load, time.monotonic() - t0, stopped=True)
             if s >= 1.0:
                 break
             time.sleep(max(0.0, dt - (time.monotonic() - tick)))

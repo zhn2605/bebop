@@ -18,6 +18,19 @@ from core.types import Flag
 STATES = ("READY", "LISTENING", "THINKING", "MOVING", "PRESENTING", "STOPPED", "HELP")
 
 
+def find_port(port: str) -> str:
+    """`port`, or for "auto" the ESP32's CP2102 adapter by name: the /dev/ttyUSB number changes
+    with plug order, its /dev/serial/by-id name doesn't."""
+    if port != "auto":
+        return port
+    import glob
+
+    found = sorted(glob.glob("/dev/serial/by-id/*CP210*"))
+    if not found:
+        raise SystemExit("no ESP32 (CP2102) under /dev/serial/by-id: is it plugged in?")
+    return found[0]
+
+
 class Esp32:
     def __init__(
         self, port: str, stop: Flag, baud: int = 115200, silence_s: float = 0.5, boot_s: float = 3.0

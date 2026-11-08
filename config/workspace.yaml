@@ -4,13 +4,13 @@
 # acquire: the tip may go anywhere the arm can physically reach: a ring around the base axis
 # (r = distance from the pan axis, mm) between the heights below. Nothing is refused before an
 # attempt except the head zone and the table; IK's "unreachable" is the only other stop.
-fence: {r: [90, 600], z: [-95, 450]}  # up to a seated person's mouth
-# The calibration sweep still needs a rectangle to visit: this box, turned by fence_yaw_deg of
-# shoulder_pan toward where the plate sits (live 2026-11-08: the plate is at pan ~80-100).
+fence: {r: [90, 600], z: [-30, 450]}  # up to a seated person's mouth
+# The calibration sweep visits this box, turned by fence_yaw_deg of shoulder_pan (0 = straight
+# ahead of the base, where the plate and cameras are now).
 # z: the bottom layer is the food's centre height (the ball must clear the plate), the top a
 # bit above the hover; the fit is only trusted between them.
-calib_box: {x: [130, 320], y: [-150, 150], z: [-75, 40]}
-fence_yaw_deg: 80
+calib_box: {x: [130, 320], y: [-150, 150], z: [-10, 100]}
+fence_yaw_deg: 0         # calibration sweeps straight ahead of the base (0 = forward)
 # Around the user's head: forbidden except inside the stage -> mouth corridor while delivering.
 # Used with taught stage/mouth poses only; a tracked mouth (calibrated face camera) puts a box
 # round the head it sees instead (motion/fence.py around_mouth).
@@ -19,10 +19,11 @@ head_zone: {x: [300, 900], y: [-300, 300], z: [180, 900]}
 deliver_radius_mm: 40   # radius of the stage -> mouth corridor (flat end at the mouth)
 hover_dz: 70            # hover distance back from the target along the gripper before the descent
 grasp_clearance_mm: 8   # descents end this far above the table: jaws around the food's lower half
-table_z: -95            # plate surface in the arm's (FK) frame. Live 2026-11-08: both cameras agreed on a
-                        # donut centre at z -85, and a descent to -32 touched nothing (-30 was a guess
-                        # from the rest pose). Measure: arm-check, torque off, touch the plate, read z
-bowl_rim_z: -80         # food-centre height for the top camera alone: table_z + ~15 for donut holes
+table_z: -30            # SAFE BOUND, NOT MEASURED. Live 2026-11-08: a descent to -32 touched
+                        # nothing, and a calibration layer at -75 hit the table and broke the wrist,
+                        # so the table is somewhere between. Measure before lowering this:
+                        # arm-check, torque off, touch the fixed jaw tip to the plate, read z.
+bowl_rim_z: -15         # food-centre height for the top camera alone: table_z + ~15 for donut holes
 retract_dz: 60
 scoop_pitch: -60        # tool pitch for the scoop dip
 # Delivery. With a tracked mouth (core/steps.py deliver_tracked): the stage point is stage_mm out

@@ -140,9 +140,9 @@ class Runner:
                                         ("model", self.args.model)) if v})
         self.planner = Planner(brain, self.log)
         if self.args.esp32:
-            from hw.esp32 import Esp32
+            from hw.esp32 import Esp32, find_port
 
-            self.esp32 = Esp32(self.args.esp32, self.stop)
+            self.esp32 = Esp32(find_port(self.args.esp32), self.stop)
 
     def start(self) -> None:
         if not self.args.fake:
@@ -597,7 +597,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", help="plan/verify model (default: brain.yaml)")
     p.add_argument("--no-dashboard", action="store_true", help="push nothing to the dashboard")
     p.add_argument("--port", type=int, default=8000, help="dashboard port (uv run dashboard)")
-    p.add_argument("--esp32", metavar="PORT", help="ESP32 serial port, e.g. /dev/ttyUSB0")
+    p.add_argument("--esp32", metavar="PORT", help="ESP32 serial port, or auto to find it by name")
     p.add_argument("--ntfy", metavar="TOPIC", help="ntfy.sh topic for HELP (or $NTFY_TOPIC)")
     p.add_argument("--gaze-pause", action="store_true",
                    help="pause the grab while the face camera sees the user look away")

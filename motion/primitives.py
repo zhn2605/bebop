@@ -74,6 +74,19 @@ class Motion:
                 self.kin.fk(self.poses["mouth"], tool).xyz,
             )
 
+    def _links_below_table(self, qs: list[dict], n: int = 8) -> str | None:
+        """The elbow and wrist stay 10 mm above the table along the joint path through qs (seen
+        live: a calibration move drove the gripper into the table and broke the wrist)."""
+        floor = self.fence.table_z + 10.0
+        for q0, q1 in zip(qs, qs[1:]):
+            for i in range(1, n + 1):
+                q = {j: q0[j] + (q1[j] - q0[j]) * i / n for j in JOINTS}
+                pts = self.kin.chain(q, self.arm.tool)
+                for name, p in (("elbow", pts[2]), ("wrist", pts[3])):
+                    if p[2] < floor:
+                        return f"the {name} would go below the table ({p[2]:.0f} mm)"
+        return None
+
     def _path_reason(self, q0: dict, q1: dict, stage: str, n: int = 10) -> str | None:
         """Fence-check the tip along the joint-space path q0 -> q1 (what move_joints will do)."""
         for i in range(1, n + 1):
@@ -117,6 +130,13 @@ class Motion:
         except Unreachable as e:
             r.ok, r.note = False, f"unreachable: {e}"
             return None
+        # Nothing commanded below the table: the tip's target (the 15 mm fence slack is for a
+        # measured tip that sagged), and the elbow and wrist along the whole joint path.
+        why = (f"target z {pose.xyz[2]:.0f} below the table" if pose.xyz[2] < self.fence.table_z
+               else self._links_below_table([st.q, *legs]))
+        if why:
+            r.ok, r.note = False, why
+            return None
         if used.pitch != pose.pitch:
             r.predicted["pitch"] = _r(used.pitch)
             note = f"pitch {pose.pitch:.0f} unreachable here, used {used.pitch:.0f}"
@@ -127,6 +147,8 @@ class Motion:
             tr = self.arm.move_joints(q, 0.0, self.pause, self._speed(speed), gate)
             err, load, dur = tr.max_err_deg, max(load, tr.max_load), dur + tr.duration_s
             if tr.stopped:
+                if self.arm.halt_reason == "collision":
+                    r.ok, r.note = False, "collision: a joint stalled under load, froze"
                 return TrackResult(err, load, dur, stopped=True)
         return TrackResult(err, load, dur)
 

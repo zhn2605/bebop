@@ -68,10 +68,13 @@ class Link:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("--port", default="/dev/ttyUSB0")
+    ap.add_argument("--port", default="auto", help="serial port, or auto to find the CP2102 by name")
     ap.add_argument("--seconds", type=float, default=5)
     ap.add_argument("--press-s", type=float, default=15, help="how long to wait for the button")
     args = ap.parse_args()
+    from hw.esp32 import find_port
+
+    args.port = find_port(args.port)
     link = Link(args.port)
 
     # Opening the port resets most dev boards (DTR/RTS auto-reset): wait for the first telemetry.
