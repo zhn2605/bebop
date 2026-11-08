@@ -17,6 +17,19 @@ AppImage from arduino.cc). Both need the esp32 core and two libraries:
   "install all" for Adafruit BusIO)
 - Board: **ESP32 Dev Module** (`esp32:esp32:esp32`)
 
+Quickest: flash the prebuilt images in `firmware/esp32/build` (only needs `uv`; esptool comes
+through `uvx`):
+
+```sh
+firmware/flash.sh                 # finds the CP2102 under /dev/serial/by-id
+firmware/flash.sh /dev/ttyUSB0    # or name the port
+```
+
+After changing `esp32.ino`, rebuild with arduino-cli (below) and copy the four images
+(`esp32.ino.bootloader.bin`, `esp32.ino.partitions.bin`, `boot_app0.bin`, `esp32.ino.bin`) from
+`--build-path` into `firmware/esp32/build`.
+
+
 ```sh
 arduino-cli config init
 arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
