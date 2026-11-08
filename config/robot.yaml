@@ -59,7 +59,7 @@ gripper:
 # tips), x along the wrist_roll axis away from the arm, y left, z up when pitch = roll = 0.
 tool_offsets:
   jaw: [0.0, 0.0, 0.0]
-  marker: [-45.0, 0.0, 0.0]   # yellow tape, fitted by tools.calibrate
+  marker: [-30.0, 0.0, 40.0]   # yellow tape, fitted by tools.calibrate
   spoon: [90.0, 0.0, -20.0]   # PLACEHOLDER, measure the spoon bowl centre with the spoon strapped in
 
 # Planar link geometry, mm, derived from the joint origins in so101_new_calib.urdf

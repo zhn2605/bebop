@@ -3,7 +3,7 @@
 provider: claude-code # auto | claude-code | gemini; auto = gemini when GEMINI_API_KEY or GOOGLE_API_KEY is set
 model: null           # overrides the plan/verify model below for any provider (core.run --model)
 models:               # per provider: plan/verify model and the cheap text-only intent model
-  claude-code: {plan: sonnet, intent: haiku}
+  claude-code: {plan: opus, intent: haiku}
   gemini: {plan: gemini-3.8-flash, intent: gemini-3.5-flash-lite}
 effort: low           # low | medium | high; claude --effort, Gemini thinking level; null = model default
 timeout_s: 60

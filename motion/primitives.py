@@ -172,6 +172,7 @@ class Motion:
         max_dz: float,
         load: float | None = None,
         expect_z: float | None = None,
+        toward=None,
     ) -> None:
         """One smooth, slow move along the tool axis toward the food until a joint load rises
         `load` (default contact_load) above its value at the start, `max_dz` is done, or the tip is
@@ -185,24 +186,46 @@ class Motion:
         # Along the way the tool points (straight down at pitch -90), so a tilted gripper slides in
         # toward the food instead of dropping sideways onto it. dz = distance along that axis.
         d = approach(a.pitch, math.atan2(a.xyz[1], a.xyz[0]))
-        down = max(-d[2], 0.2)  # height lost per mm along the axis
-        length = max(0.0, min(max_dz, (a.xyz[2] - floor) / down))
-        peak, joint = 0.0, ""
+        if toward is not None:  # straight through the target, down to the grasp floor
+            v = [toward[i] - a.xyz[i] for i in range(3)]
+            n = math.sqrt(sum(c * c for c in v))
+            if n > 1e-6 and v[2] / n < -0.2:
+                d = tuple(c / n for c in v)
+        down = max(-d[2], 0.2)  # height lost per mm along the line
+        length = (a.xyz[2] - floor) / down
+        if toward is None:
+            length = min(max_dz, length)
+        length = max(0.0, length)
+        peak, joint, over, t_start = 0.0, "", 0, time.monotonic()
 
-        def gate() -> str | None:  # every tick of the move: freeze on a firm push
-            nonlocal peak, joint
+        def gate() -> str | None:  # every tick: freeze on a firm push that lasts 3 ticks
+            nonlocal peak, joint, over
             now = self.arm.last_load
             j = max(JOINTS, key=lambda k: abs(now[k] - base[k]))
-            peak = max(peak, abs(now[j] - base[j]))
-            if abs(now[j] - base[j]) > limit:
+            rise = abs(now[j] - base[j])
+            peak = max(peak, rise)
+            # The start of the move jolts the loaded elbow (seen live: a "contact" 1.6 mm in).
+            over = over + 1 if rise > limit and time.monotonic() - t_start > 0.4 else 0
+            if over >= 3:
                 joint = j
                 return "contact"
             return None
 
+        # As far down the line as the arm reaches: at the edge of reach the floor itself can be out
+        # of range (seen live: food 40 cm out), and stopping short beats refusing to move.
+        def at(length: float) -> Pose:
+            return Pose(tuple(a.xyz[i] + d[i] * length for i in range(3)), a.pitch, a.roll)
+
+        full = length
+        while length > 1e-6:
+            try:
+                self.kin.ik_any_pitch(at(length), self.arm.tool)
+                break
+            except Unreachable:
+                length -= 5.0
         tr = None
         if length > 1e-6:
-            end = Pose(tuple(a.xyz[i] + d[i] * length for i in range(3)), a.pitch, a.roll)
-            tr = self._go(r, end, "creep", "acquire", gate)
+            tr = self._go(r, at(length), "creep", "acquire", gate)
         contact = bool(tr and tr.stopped and self.arm.halt_reason == "contact")
         tip = self.arm.state().tip.xyz
         dz = sum((tip[i] - a.xyz[i]) * d[i] for i in range(3))
@@ -211,7 +234,8 @@ class Motion:
             r.measured["contact_joint"] = joint
         r.error["z_mm"] = _r(tip[2] - r.predicted["contact_z"])
         if not contact and r.ok:
-            r.note = "reached floor, no contact" if length < max_dz - 1e-6 else "no contact"
+            r.note = ("reached floor, no contact" if length >= full - 1e-6
+                      else f"stopped {full - length:.0f} mm short of the floor: edge of reach")
 
     @_action
     def open(self, r: ActionResult, width_mm: float) -> None:
@@ -226,11 +250,24 @@ class Motion:
 
     @_action
     def close(self, r: ActionResult, expect_mm: float | None = None) -> None:
-        """Close on the object. `expect_mm` = the object width the orchestrator predicted."""
+        """Close on the object. `expect_mm` = the object width the orchestrator predicted. A jaw that
+        jams at once is most likely on the table or plate: up 8 mm, open again, one more close."""
+        start = self.arm.state().gripper_mm
         got = self.arm.close_gripper()
+        if start > 10 and start - got < 4:
+            tip = self.tip
+            self._go(r, Pose((tip.xyz[0], tip.xyz[1], tip.xyz[2] + 8.0), tip.pitch, tip.roll),
+                     "slow", "acquire")
+            self.arm.move_joints({GRIPPER: self.arm.pct(start)}, speed_deg_s=self._speed("slow"))
+            got = self.arm.close_gripper()
+            blocked = start - got < 4
+            r.note = ("jaw blocked twice (table or plate under it?)" if blocked
+                      else "jaw blocked at once (table or plate?); lifted 8 mm and closed again")
+            if blocked:
+                r.ok = False
         r.predicted["width_mm"] = _r(expect_mm) if expect_mm is not None else None
         r.measured.update(width_mm=_r(got), load=_r(self.arm.state().load[GRIPPER]))
-        r.ok = got >= 3
+        r.ok = r.ok and got >= 3
         if expect_mm is not None:
             r.error["mm"] = _r(got - expect_mm)
             # VLM boxes run loose, so a narrower grasp than predicted is fine; only something much
@@ -238,7 +275,7 @@ class Motion:
             if got > expect_mm * 1.3 + 12:
                 r.ok, r.note = False, "closed on something wider than the object"
         if got < 3:
-            r.note = "closed on nothing"
+            r.note = f"{r.note}; closed on nothing" if r.note else "closed on nothing"
 
     @_action
     def lift(self, r: ActionResult, dz: float | None = None) -> None:

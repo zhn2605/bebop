@@ -6,129 +6,124 @@
 <title>Byte to Bite</title>
 <style>
   :root {
-    --bg: #f4f3ef; --card: #ffffff; --fg: #1c1c1a; --mute: #6f6d66; --line: #e3e0d7;
-    --soft: #efede6; --accent: #2f5bd3; --accent-fg: #ffffff;
-    --ok: #1f7a3a; --ok-bg: #e3f2e7; --bad: #b3261e; --bad-bg: #fbe7e5; --warn: #9a6200; --warn-bg: #fdf0d7;
-    --img: #e6e3da; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
-    --c1: #8a9bb3; --c2: #c98a12; --c3: #2e9e4f;
+    --bg: #ffffff; --card: #ffffff; --fg: #111111; --mute: #666666; --line: #cccccc;
+    --soft: #f2f2f2; --accent: #111111; --accent-fg: #ffffff;
+    --ok: #0a7a2f; --ok-bg: #ffffff; --bad: #c00000; --bad-bg: #ffffff; --warn: #8a5a00; --warn-bg: #fff8e5;
+    --img: #e5e5e5; --shadow: none; --c1: #7a8899; --c2: #b07800; --c3: #0a7a2f;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #141513; --card: #1d1e1c; --fg: #ecebe6; --mute: #9a988f; --line: #2e2f2c;
-      --soft: #262724; --accent: #6f93ff; --accent-fg: #0d1020;
-      --ok: #5cc27a; --ok-bg: #1b2e21; --bad: #ff7b6e; --bad-bg: #3a1f1c; --warn: #e8b04d; --warn-bg: #3a2e17;
-      --img: #232421; --shadow: none; --c1: #7c8ca3; --c2: #e0a53a; --c3: #5cc27a;
+      --bg: #111111; --card: #111111; --fg: #e6e6e6; --mute: #8c8c8c; --line: #333333;
+      --soft: #1c1c1c; --accent: #e6e6e6; --accent-fg: #111111;
+      --ok: #4caf6a; --ok-bg: #111111; --bad: #ff5a4f; --bad-bg: #111111; --warn: #d9a440; --warn-bg: #241d0d;
+      --img: #1c1c1c; --c1: #7a8899; --c2: #d9a440; --c3: #4caf6a;
     }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--fg);
-         font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .mono, td.num { font-family: ui-monospace, "JetBrains Mono", Menlo, monospace; font-size: 12.5px; }
+         font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono, td.num, .tile .v { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
   .mute { color: var(--mute); }
 
-  /* top bar */
-  header { position: sticky; top: 0; z-index: 5; display: flex; gap: 12px; align-items: center;
-           flex-wrap: wrap; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 88%, transparent);
-           backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
-  .brand { font-weight: 700; font-size: 16px; letter-spacing: -.01em; margin-right: 4px; }
-  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 10px;
-          border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-weight: 600; }
-  .led { width: 10px; height: 10px; border-radius: 50%; background: #9a9890; flex: none; }
-  .led.green { background: #2e9e4f; box-shadow: 0 0 0 3px color-mix(in srgb, #2e9e4f 25%, transparent); }
-  .led.yellow { background: #e0a800; box-shadow: 0 0 0 3px color-mix(in srgb, #e0a800 25%, transparent); }
-  .led.red { background: #d0362b; box-shadow: 0 0 0 3px color-mix(in srgb, #d0362b 25%, transparent); }
-  #program { font-size: 12.5px; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 6px 12px;
+           border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 600; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-family: ui-monospace, Menlo, monospace; }
+  .led { width: 9px; height: 9px; background: #999999; flex: none; }
+  .led.green { background: #0a7a2f; } .led.yellow { background: #d9a400; } .led.red { background: #c00000; }
+  #program { font-size: 12px; }
   .spacer { flex: 1; }
-  button { font: inherit; padding: 7px 14px; border: 1px solid var(--line); background: var(--card);
-           color: var(--fg); border-radius: 8px; cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--mute); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.stop { background: #c62f24; color: #fff; border-color: #c62f24; font-weight: 700; padding: 7px 20px; }
-  button.stop:hover { background: #a8261d; }
-  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); background: var(--soft);
+           color: var(--fg); border-radius: 0; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.stop { background: #c00000; color: #ffffff; border-color: #c00000; font-weight: 600; }
+  button.primary { border-color: var(--fg); }
 
-  main { max-width: 1440px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 16px;
-         grid-template-columns: repeat(12, minmax(0, 1fr)); }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-            padding: 14px 16px; box-shadow: var(--shadow); min-width: 0; grid-column: span 12; }
-  h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
-       color: var(--mute); margin: 0 0 10px; }
-  .s4 { grid-column: span 4; } .s5 { grid-column: span 5; } .s7 { grid-column: span 7; } .s8 { grid-column: span 8; }
-  @media (max-width: 1000px) { .s4, .s5, .s7, .s8 { grid-column: span 12; } }
+  main { padding: 8px 12px 24px; display: grid; gap: 8px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+  section { border: 1px solid var(--line); padding: 8px 10px; min-width: 0; grid-column: span 12; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  .s4 { grid-column: span 4; } .s6 { grid-column: span 6; }
+  @media (max-width: 1000px) { .s4, .s6 { grid-column: span 12; } }
 
-  /* banner */
-  #banner { grid-column: span 12; display: none; padding: 12px 16px; border-radius: 12px;
-            font-weight: 600; border: 1px solid; }
+  /* what the robot is doing, readable from across the room */
+  .now { display: flex; align-items: center; gap: 18px; padding: 12px 18px; border: 3px solid var(--now);
+         color: var(--now); grid-column: span 12; }
+  .now-icon svg { width: 64px; height: 64px; display: block; }
+  .now-label { font-size: 34px; font-weight: 700; line-height: 1.1; }
+  .now-sub { font-size: 17px; color: var(--fg); margin-top: 3px; }
+  .now-meta { margin-left: auto; color: var(--mute); text-align: right; }
+  .now.active .now-icon { animation: flash 1.1s ease-in-out infinite; }
+  @keyframes flash { 50% { opacity: .2; } }
+  .now.thinking { --now: #1f6feb; } .now.moving { --now: #b58100; } .now.delivering { --now: #7b3fd1; }
+  .now.done { --now: #148a35; } .now.retry { --now: #d4620a; } .now.help { --now: #d4620a; }
+  .now.stopped { --now: #c00000; } .now.listening { --now: #0f8a8a; } .now.ready, .now.idle { --now: #808080; }
+  @media (prefers-color-scheme: dark) {
+    .now.thinking { --now: #5aa0ff; } .now.moving { --now: #e6b422; } .now.delivering { --now: #b07cff; }
+    .now.done { --now: #4cc46c; } .now.retry, .now.help { --now: #ff8c3a; } .now.stopped { --now: #ff5a4f; }
+    .now.listening { --now: #3cc6c6; }
+  }
+  #trend { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
+  #trend-sub { color: var(--mute); margin-bottom: 6px; }
+
+  #banner { grid-column: span 12; display: none; padding: 6px 10px; border: 1px solid; }
   #banner.help { display: block; background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
-  #banner.stopped { display: block; background: var(--bad-bg); color: var(--bad); border-color: var(--bad); }
+  #banner.stopped { display: block; color: var(--bad); border-color: var(--bad); }
 
-  /* command */
-  #say { display: flex; gap: 8px; }
-  #say input { flex: 1; min-width: 0; font: inherit; font-size: 15px; padding: 10px 14px; color: var(--fg);
-               background: var(--soft); border: 1px solid var(--line); border-radius: 10px; outline: none; }
-  #say input:focus { border-color: var(--accent); background: var(--card); }
-  #mic { display: inline-flex; align-items: center; gap: 6px; }
-  #mic svg { width: 16px; height: 16px; }
-  #mic.rec { background: var(--bad-bg); color: var(--bad); border-color: var(--bad); }
-  #mic.rec svg { animation: pulse 1s infinite; }
-  @keyframes pulse { 50% { opacity: .35; } }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-  .chip { padding: 4px 11px; border-radius: 999px; font-size: 12.5px; background: var(--soft); }
-  #hint { margin-top: 10px; font-size: 13px; }
-  #heard { margin-top: 4px; font-size: 13px; }
+  #say { display: flex; gap: 6px; }
+  #say input { flex: 1; min-width: 0; font: inherit; padding: 4px 8px; color: var(--fg); background: var(--bg);
+               border: 1px solid var(--line); border-radius: 0; outline: none; }
+  #say input:focus { border-color: var(--fg); }
+  #mic { display: inline-flex; align-items: center; gap: 4px; }
+  #mic svg { width: 13px; height: 13px; }
+  #mic.rec { color: var(--bad); border-color: var(--bad); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .chip { font-size: 12px; }
+  #hint, #heard { margin-top: 4px; font-size: 12px; }
 
-  /* streams */
-  .streams { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-  .streams figure { margin: 0; position: relative; }
-  .streams img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: var(--img);
-                 display: block; border-radius: 8px; }
-  .streams figcaption { position: absolute; left: 8px; top: 8px; font-size: 11.5px; font-weight: 600;
-                        padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.55); color: #fff; }
-  .streams .off { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3; border-radius: 8px;
-                  background: var(--img); color: var(--mute); font-size: 13px; }
+  .streams { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .streams figure { margin: 0; }
+  .streams img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: var(--img); display: block; }
+  .streams figcaption { font-size: 12px; color: var(--mute); margin-top: 2px; }
+  .streams .off { display: grid; place-items: center; width: 100%; aspect-ratio: 4 / 3;
+                  background: var(--img); color: var(--mute); font-size: 12px; }
 
-  /* tiles */
-  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .tile { background: var(--soft); border-radius: 10px; padding: 8px 10px; min-width: 0; }
-  .tile .k { font-size: 11.5px; color: var(--mute); }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 6px;
+           border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .tile { padding: 3px 6px; min-width: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .tile .k { font-size: 11px; color: var(--mute); }
   .tile.wide { grid-column: 1 / -1; }
-  .tile .v { font-size: 17px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-             font-variant-numeric: tabular-nums; }
+  .tile .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 
   table { border-collapse: collapse; width: 100%; }
-  td, th { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tr:last-child > td, tr:last-child > th { border-bottom: 0; }
-  th { color: var(--mute); font-weight: 500; white-space: nowrap; width: 1%; }
-  thead th, tr.head th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
-  .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; } .warn { color: var(--warn); }
+  td, th { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--mute); font-weight: normal; white-space: nowrap; width: 1%; }
+  thead th, tr.head th { font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
   #joints td:first-child { white-space: nowrap; }
-  .bar { height: 6px; border-radius: 3px; background: var(--soft); overflow: hidden; min-width: 50px; margin-top: 5px; }
+  .bar { height: 4px; background: var(--soft); min-width: 50px; margin-top: 3px; }
   .bar i { display: block; height: 100%; background: var(--c1); }
   .bar i.bad { background: var(--bad); }
 
-  /* attempts */
-  #strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-  #strip .att { padding: 4px 10px; font-size: 13px; }
-  #strip .att.ok { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-  #strip .att.bad { background: var(--bad-bg); border-color: var(--bad); color: var(--bad); }
-  #strip .att.sel { outline: 2px solid var(--fg); outline-offset: 1px; }
-  #strip label { margin-left: 8px; font-size: 13px; color: var(--mute); }
-  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .badge.ok { background: var(--ok-bg); } .badge.bad { background: var(--bad-bg); }
-  .frames { display: flex; gap: 8px; flex-wrap: wrap; }
-  .frames a img { height: 120px; border: 1px solid var(--line); border-radius: 6px; display: block; }
+  #strip { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  #strip .att { padding: 1px 6px; font-size: 12px; }
+  #strip .att.ok { color: var(--ok); border-color: var(--ok); }
+  #strip .att.bad { color: var(--bad); border-color: var(--bad); }
+  #strip .att.sel { outline: 1px solid var(--fg); }
+  #strip label { margin-left: 6px; font-size: 12px; color: var(--mute); }
+  .badge { font-size: 12px; } .badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); }
+  .frames { display: flex; gap: 6px; flex-wrap: wrap; }
+  .frames a img { height: 110px; border: 1px solid var(--line); display: block; }
   .frames figure { margin: 0; font-size: 11px; color: var(--mute); }
-  p.text { margin: 4px 0 12px; white-space: pre-wrap; }
-  #detail h2 { margin-top: 14px; }
-  #chartbox { position: relative; height: 260px; }
+  p.text { margin: 2px 0 8px; white-space: pre-wrap; }
+  #detail h2 { margin-top: 10px; }
+  #chartbox { position: relative; height: 300px; }
   .scroll { overflow-x: auto; }
-  @media (max-width: 600px) { main { padding: 12px 16px 32px; } header { padding: 8px 16px; } }
 </style>
 </head>
 <body>
 <header>
   <span class="brand">Byte to Bite</span>
-  <span class="pill"><span class="led" id="led"></span><span id="stage">…</span></span>
   <span id="program" class="mute"></span>
   <span class="spacer"></span>
   <button id="btn-resume" title="Clear stop / continue after HELP; the arm goes home slowly">Resume</button>
@@ -136,10 +131,32 @@
   <button class="stop" id="btn-stop" title="Freeze the arm">Stop</button>
 </header>
 <main>
-  <div id="banner"></div>
+  <section id="now" class="now idle">
+    <div class="now-icon" id="now-icon"></div>
+    <div><div class="now-label" id="now-label">…</div><div class="now-sub" id="now-sub"></div></div>
+    <div class="now-meta mono" id="now-meta"></div>
+  </section>
 
   <section>
-    <h2>Ask the feeder</h2>
+    <h2>Cameras</h2>
+    <div class="streams" id="streams"></div>
+  </section>
+
+  <section class="s6">
+    <h2>Attempts</h2>
+    <div id="strip"></div>
+    <div id="detail"><p class="text mute">No attempts yet.</p></div>
+  </section>
+
+  <section class="s6">
+    <h2>Gripper-to-food distance when the gripper closed, per try (lower is better)</h2>
+    <div id="trend"></div>
+    <div id="trend-sub"></div>
+    <div id="chartbox"><canvas id="chart"></canvas></div>
+  </section>
+
+  <section class="s4">
+    <h2>Request</h2>
     <form id="say" autocomplete="off">
       <input id="say-text" placeholder="e.g. feed me a donut hole" aria-label="Request for the feeder">
       <button type="button" id="mic" title="Record, then click again to transcribe">
@@ -157,31 +174,15 @@
     <div id="heard" class="mute"></div>
   </section>
 
-  <section class="s8">
-    <h2>Cameras</h2>
-    <div class="streams" id="streams"></div>
-  </section>
-
   <section class="s4">
     <h2>Run</h2>
     <div class="tiles" id="tiles"></div>
     <table id="numbers"></table>
   </section>
 
-  <section class="s5">
+  <section class="s4">
     <h2>Arm</h2>
     <table id="joints"></table>
-  </section>
-
-  <section class="s7">
-    <h2>Error and confidence per attempt</h2>
-    <div id="chartbox"><canvas id="chart"></canvas></div>
-  </section>
-
-  <section>
-    <h2>Attempts</h2>
-    <div id="strip"></div>
-    <div id="detail"><p class="text mute">No attempts yet.</p></div>
   </section>
 </main>
 
@@ -189,7 +190,7 @@
 <script>
 const CAMS = ["top", "side", "face"];
 const JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"];
-let attempts = [], sel = -1, live = true, chart = null, lastAttemptsJson = "", state = {};
+let attempts = [], sel = -1, live = true, chart = null, lastAttemptsJson = "", state = {}, lastDone = null;
 
 const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -224,17 +225,58 @@ function sayHint(s) {
   return [`Busy (${s.stage}): only “yes” and “continue” are heard right now.`, true];
 }
 
+const SVG = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICON = {
+  thinking: SVG('<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>'),
+  moving: SVG('<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>'),
+  delivering: SVG('<path d="M7 17 17 7"/><path d="M7 7h10v10"/>'),
+  done: SVG('<path d="M20 6 9 17l-5-5"/>'),
+  retry: SVG('<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>'),
+  help: SVG('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'),
+  stopped: SVG('<rect x="5" y="5" width="14" height="14"/>'),
+  listening: SVG('<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/>'),
+  ready: SVG('<circle cx="12" cy="12" r="8"/>'),
+  idle: SVG('<circle cx="12" cy="12" r="8"/>'),
+};
+const DOING = {
+  plan: "Planning the grab", verify: "Checking the grab", move_to: "Moving above the food",
+  open: "Opening the gripper", descend_until_contact: "Lowering onto the food", close: "Closing the gripper",
+  lift: "Lifting the food", retract: "Pulling back", home: "Returning home", stage: "Moving in front of the mouth",
+  present: "Bringing the food to the mouth", scoop: "Scooping",
+};
+function doing(action) {
+  if (!action) return "";
+  if (action.startsWith("intent")) return "Reading the request";
+  return DOING[action.split(/[ (:]/)[0]] || action;
+}
+let flash = null;  // {kind, label, sub, until}: a short "Picked up" / "Missed" after an attempt ends
+function renderNow(s) {
+  let kind = "ready", label = "Ready", sub = s.task ? `Task: ${s.task}` : "";
+  if (flash && Date.now() < flash.until) ({ kind, label, sub } = flash);
+  else if (!s.live) { kind = "idle"; label = "Idle"; sub = "Nothing connected"; }
+  else if (s.stage === "THINKING") { kind = "thinking"; label = "Thinking…"; sub = doing(s.action); }
+  else if (s.stage === "MOVING") { kind = "moving"; label = "Moving"; sub = doing(s.action); }
+  else if (s.stage === "PRESENTING") { kind = "delivering"; label = "Delivering"; sub = doing(s.action) || doing("present"); }
+  else if (s.stage === "LISTENING") {
+    kind = "listening";
+    [label, sub] = s.goal === "deliver" ? ["Waiting", "For an open mouth or “yes”"] : ["Listening", "Say or type a request"];
+  }
+  else if (s.stage === "HELP") { kind = "help"; label = "Needs help"; sub = s.help || ""; }
+  else if (s.stage === "STOPPED") { kind = "stopped"; label = "Stopped"; sub = "Press Resume or say “continue”"; }
+  $("now").className = `now ${kind}${["thinking", "moving", "delivering"].includes(kind) ? " active" : ""}`;
+  $("now-icon").innerHTML = ICON[kind];
+  $("now-label").textContent = label;
+  $("now-sub").textContent = sub;
+  $("now-meta").innerHTML = [s.attempt ? `try ${s.attempt} of ${s.max_attempts}` : "",
+    s.source ? `${esc(s.source)}${s.fake ? " (fake)" : ""}` : "", ago(s.elapsed_s || 0)].filter(Boolean).join("<br>");
+}
+
 function renderState(s) {
   state = s;
   const cams = (s.cameras || []).join(",");
   if ($("streams").dataset.cams !== cams) { buildStreams(s.cameras || []); $("streams").dataset.cams = cams; }
-  $("stage").textContent = s.stage + (s.goal ? ` · ${s.goal}` : "");
-  $("led").className = "led " + (s.led || "");
+  renderNow(s);
   $("program").textContent = s.source ? `${s.source}${s.live ? "" : " (not connected)"}${s.fake ? " · fake" : ""}` : "";
-  const banner = $("banner");
-  if (s.help) { banner.className = "help"; banner.textContent = `HELP: ${s.help}`; }
-  else if (s.stage === "STOPPED") { banner.className = "stopped"; banner.textContent = `STOPPED${s.reason ? `: ${s.reason}` : ""}. Press Resume or say “continue”.`; }
-  else banner.className = "";
 
   const [hint, can] = sayHint(s);
   $("hint").textContent = hint;
@@ -324,31 +366,62 @@ function renderDetail() {
     ${frames ? `<h2>Frames</h2><div class="frames">${frames}</div>` : ""}`;
 }
 
-function renderChart() {
-  if (typeof Chart === "undefined") return;
-  const acq = attempts.filter((a) => a.goal === "acquire");
-  const labels = acq.map((a, i) => `#${i + 1}`);
-  const err = acq.map((a) => a.err_mm ?? null);
-  const prob = acq.map((a) => (a.plan && a.plan.prediction) ? a.plan.prediction.success_prob : null);
-  const out = acq.map((a) => a.ok === true ? 1 : a.ok === false ? 0 : null);
-  if (!chart) {
-    Chart.defaults.color = css("--mute"); Chart.defaults.borderColor = css("--line");
-    chart = new Chart($("chart"), {
-      data: { labels, datasets: [
-        { type: "bar", label: "position error mm", data: err, yAxisID: "mm", backgroundColor: css("--c1"), borderRadius: 4, maxBarThickness: 48 },
-        { type: "line", label: "planner's success guess", data: prob, yAxisID: "p", borderColor: css("--c2"), backgroundColor: css("--c2"), showLine: false, pointRadius: 6 },
-        { type: "line", label: "outcome (1/0)", data: out, yAxisID: "p", borderColor: css("--c3"), backgroundColor: css("--c3"), showLine: false, pointRadius: 5, pointStyle: "rectRot" },
-      ] },
-      options: { animation: false, maintainAspectRatio: false,
-        plugins: { legend: { labels: { boxWidth: 10, boxHeight: 10 } } },
-        scales: { mm: { position: "left", beginAtZero: true, title: { display: true, text: "mm" } },
-                  p: { position: "right", min: 0, max: 1, grid: { drawOnChartArea: false } } } },
+const valueLabels = {
+  id: "valueLabels",
+  afterDatasetsDraw(c) {
+    const ctx = c.ctx, meta = c.getDatasetMeta(0);
+    ctx.save(); ctx.font = "600 14px system-ui, sans-serif"; ctx.fillStyle = css("--fg"); ctx.textAlign = "center";
+    meta.data.forEach((pt, i) => {
+      const v = c.data.datasets[0].data[i];
+      if (v != null) ctx.fillText(`${Math.round(v)} mm`, pt.x, pt.y - 14);
     });
+    ctx.restore();
+  },
+};
+
+function renderChart() {
+  // Only the current task's tries: the run keeps every task's attempts, and the trend means
+  // something only within one task (its tries restart at #1).
+  let start = 0;
+  attempts.forEach((a, i) => { if (a.goal === "acquire" && a.n === 1) start = i; });
+  const acq = attempts.slice(start).filter((a) => a.goal === "acquire");
+  const err = acq.map((a) => a.err_mm ?? null);
+  const pts = err.filter((e) => e != null);
+  const got = acq.filter((a) => a.ok === true).length;
+  if (pts.length >= 2) {
+    const first = pts[0], lastE = pts[pts.length - 1], pct = Math.round((lastE - first) / first * 100);
+    $("trend").innerHTML = `Off by ${Math.round(first)} mm → ${Math.round(lastE)} mm ` +
+      `<span class="${lastE < first ? "ok" : "bad"}">(${pct > 0 ? "+" : ""}${pct}%${lastE < first ? ", improving" : ""})</span>`;
   } else {
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = err; chart.data.datasets[1].data = prob; chart.data.datasets[2].data = out;
-    chart.update();
+    $("trend").textContent = pts.length ? `Off by ${Math.round(pts[0])} mm on try 1` : "No grab tries yet";
   }
+  $("trend-sub").textContent = acq.length ? `${got} of ${acq.length} tries grabbed the food. Dot: green = grabbed, red = missed.` : "";
+  if (typeof Chart === "undefined") return;
+  if (chart) chart.destroy();
+  Chart.defaults.color = css("--mute"); Chart.defaults.borderColor = css("--line"); Chart.defaults.font.size = 13;
+  const dot = acq.map((a) => a.ok === true ? css("--ok") : a.ok === false ? css("--bad") : css("--mute"));
+  chart = new Chart($("chart"), {
+    type: "line",
+    data: {
+      labels: acq.map((_, i) => `Try ${i + 1}`),
+      datasets: [
+        { label: "gripper-to-food distance (mm)", data: err, yAxisID: "mm", borderColor: css("--c1"), borderWidth: 3,
+          pointBackgroundColor: dot, pointBorderColor: dot, pointRadius: 8, spanGaps: true },
+        { label: "planner's confidence (%)", yAxisID: "p", borderColor: css("--c2"), borderDash: [6, 4], pointRadius: 3,
+          data: acq.map((a) => a.plan && a.plan.prediction && a.plan.prediction.success_prob != null
+            ? Math.round(a.plan.prediction.success_prob * 100) : null) },
+      ],
+    },
+    options: {
+      animation: false, maintainAspectRatio: false, layout: { padding: { top: 22 } },
+      plugins: { legend: { labels: { boxWidth: 14, boxHeight: 3 } } },
+      scales: {
+        mm: { position: "left", beginAtZero: true, title: { display: true, text: "distance, mm" } },
+        p: { position: "right", min: 0, max: 100, grid: { drawOnChartArea: false }, title: { display: true, text: "confidence, %" } },
+      },
+    },
+    plugins: [valueLabels],
+  });
 }
 
 function renderAll() {
@@ -419,7 +492,7 @@ $("mic").onclick = async () => {
 
 async function pollState() {
   try { renderState(await (await fetch("/state")).json()); }
-  catch (e) { $("stage").textContent = "dashboard down"; $("streams").dataset.cams = ""; }
+  catch (e) { $("now-label").textContent = "Dashboard down"; $("streams").dataset.cams = ""; }
   setTimeout(pollState, 500);
 }
 async function pollAttempts() {
@@ -427,6 +500,16 @@ async function pollAttempts() {
     const text = await (await fetch("/attempts")).text();
     if (text !== lastAttemptsJson) {
       lastAttemptsJson = text; attempts = JSON.parse(text);
+      const last = attempts[attempts.length - 1], key = last ? `${last.goal}#${last.n}:${last.ok}` : "";
+      if (last && last.ok != null && key !== lastDone) {
+        if (lastDone !== null) {
+          flash = last.ok
+            ? { kind: "done", label: last.goal === "deliver" ? "Delivered" : "Picked up", sub: last.task || "" }
+            : { kind: "retry", label: "Missed", sub: "Trying again with what it measured" };
+          flash.until = Date.now() + 4000;
+        }
+        lastDone = key;
+      }
       renderAll(); renderChart();
     }
   } catch (e) { /* the state poll shows the disconnect */ }

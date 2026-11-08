@@ -364,7 +364,7 @@ class Arm:
         self.frozen = False
         rate = float(self.grip.get("speed_pct_s", 60)) * self.slow_factor
         pos, _ = self._read()
-        g0, t0, dt = pos[GRIPPER], time.monotonic(), 1.0 / self.hz
+        g0, t0, dt, stall = pos[GRIPPER], time.monotonic(), 1.0 / self.hz, 0
         while True:
             tick = time.monotonic()
             self._check_stop()
@@ -372,7 +372,10 @@ class Arm:
             goal = max(g0 - rate * t, 0.0)
             self._send({GRIPPER: goal})
             pos, load = self._read()
-            if t > 0.2 and abs(load[GRIPPER]) > limit:
+            # Closed on something = the jaw stops following its goal for 3 ticks. The load alone
+            # fired on the motor's own effort at 5 V (seen live: every close stopped 1-3 mm in).
+            stall = stall + 1 if t > 0.3 and pos[GRIPPER] - goal > 8.0 else 0
+            if stall >= 3 or abs(load[GRIPPER]) > max(limit, 0.8):
                 self._send({GRIPPER: max(pos[GRIPPER] - 3.0, 0.0)})
                 break
             if goal <= 0.0 and (pos[GRIPPER] < 1.5 or t > g0 / rate + 1.0):

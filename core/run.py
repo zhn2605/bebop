@@ -93,6 +93,10 @@ class Runner:
 
         self.kin = Kinematics(self.robot["geometry"], self.robot["tool_offsets"],
                               self.robot.get("joints"))
+        if self.args.speed != 1.0:  # --speed scales every arm and gripper move
+            self.robot["speed_deg_s"] = float(self.robot.get("speed_deg_s", 60)) * self.args.speed
+            grip = self.robot.setdefault("gripper", {})
+            grip["speed_pct_s"] = float(grip.get("speed_pct_s", 100)) * self.args.speed
         self.arm = Arm(self.robot, self.stop, fake=self.args.fake, kin=self.kin)
         taught = {k: v for k, v in self.cfg["poses"].items() if k != "fake"}
         poses = taught
@@ -522,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--ntfy", metavar="TOPIC", help="ntfy.sh topic for HELP (or $NTFY_TOPIC)")
     p.add_argument("--gaze-pause", action="store_true",
                    help="pause the grab while the face camera sees the user look away")
+    p.add_argument("--speed", type=float, default=1.0,
+                   help="multiplier for every arm and gripper speed, e.g. 1.5")
     p.add_argument("--attempts", type=int, help="tries per goal before HELP (brain.yaml max_attempts)")
     p.add_argument("--budget", type=float, help="VLM USD for the run (brain.yaml run_budget_usd)")
     args = p.parse_args(argv)

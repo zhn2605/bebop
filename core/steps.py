@@ -102,7 +102,9 @@ def target_pose(args: dict, target, hover_dz: float, pitch: float, kin=None, too
             p = kin.ik_any_pitch(Pose((x, y, z), p, roll), tool)[1].pitch
         except Unreachable:
             pass
-    d = approach(p, math.atan2(y, x))
+    # Back along the tool axis, but at most 30 deg off vertical: at full reach the gripper tilts
+    # far over, and a hover that far back sat 5 cm from the food (seen live).
+    d = approach(min(p, -60.0), math.atan2(y, x))
     return Pose((x - d[0] * dz, y - d[1] * dz, z - d[2] * dz), p, roll)
 
 
@@ -117,7 +119,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
         return r
     if a.name == "descend_until_contact":
         return m.descend_until_contact(float(args.get("max_dz", 60)), load=args.get("load"),
-                                       expect_z=target[2])
+                                       expect_z=target[2], toward=target)
     if a.name == "open":
         want = float(args.get("width_mm", (width or 30) + 15))
         r = m.open(min(want, run.gripper_max))
@@ -127,8 +129,14 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
         return r
     if a.name == "close":
         r = m.close(expect_mm=width)
-        # Where the gripper really is once the jaws have shut: the grab's own position error.
-        enrich_move(r, run.arm.state().tip, run.cameras, run.calib, run.marker_cfg, run.arm)
+        # Where the gripper really is once the jaws have shut, and how far that is from the food:
+        # the cameras' tape position, moved by the arm's own tape-to-jaw offset, against the target.
+        tip = run.arm.state().tip
+        enrich_move(r, tip, run.cameras, run.calib, run.marker_cfg, run.arm)
+        seen, tape = r.measured.get("marker_xyz"), r.predicted.get("tape_xyz")
+        if seen and tape and target is not None:
+            grab = [seen[i] + tip.xyz[i] - tape[i] for i in range(3)]
+            r.error["to_food_mm"] = round(math.dist(grab[:2], target[:2]), 1)
         return r
     if a.name == "scoop":
         return m.scoop(float(args.get("depth_mm", 15)), float(args.get("drag_mm", 30)),
@@ -188,6 +196,7 @@ def enrich_move(r: ActionResult, pose: Pose, cameras, calib, marker_cfg: dict, a
     r.predicted.setdefault("tip_xyz", [round(v, 1) for v in pose.xyz])
     r.predicted["tip_uv"] = tip_uv
     r.predicted["tape_uv"] = tape_uv
+    r.predicted["tape_xyz"] = [round(float(v), 1) for v in tape]
     r.measured["marker_uv"] = marker_uv
     r.error["px"] = px
     if len(marker_uv) >= 2:
@@ -197,11 +206,11 @@ def enrich_move(r: ActionResult, pose: Pose, cameras, calib, marker_cfg: dict, a
 
 
 def position_error_mm(results: list[ActionResult]) -> float | None:
-    """The camera error at the last close (where the grab happened), else the last move_to's
+    """How far the gripper was from the food when it closed (cameras), else the last move_to's
     camera error (mm_from_marker) or FK error (xyz_mm)."""
     for r in reversed(results):
-        if r.name == "close" and r.error.get("mm_from_marker") is not None:
-            return float(r.error["mm_from_marker"])
+        if r.name == "close" and r.error.get("to_food_mm") is not None:
+            return float(r.error["to_food_mm"])
         if r.name == "move_to":
             e = r.error.get("mm_from_marker", r.error.get("xyz_mm"))
             return None if e is None else float(e)
