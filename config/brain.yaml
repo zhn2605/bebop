@@ -1,10 +1,10 @@
 # VLM planner (brain/planner.py) and voice listener (voice/listener.py).
 
-provider: auto        # auto | claude-code | gemini; auto = gemini when GEMINI_API_KEY or GOOGLE_API_KEY is set
+provider: gemini      # auto | claude-code | gemini; auto = gemini when GEMINI_API_KEY or GOOGLE_API_KEY is set
 model: null           # overrides the plan/verify model below for any provider (core.run --model)
 models:               # per provider: plan/verify model and the cheap text-only intent model
-  claude-code: {plan: sonnet, intent: haiku}
-  gemini: {plan: gemini-3.6-flash, intent: gemini-3.5-flash-lite}
+  claude-code: {plan: haiku, intent: haiku}
+  gemini: {plan: gemini-3.8-flash, intent: gemini-3.5-flash-lite}
 effort: null          # low | medium | high; claude --effort, Gemini thinking level; null = model default
 timeout_s: 60
 max_budget_usd: 0.25  # per call; the turn that crosses it fails

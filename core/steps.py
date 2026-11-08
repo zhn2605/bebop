@@ -238,7 +238,9 @@ def deliver(run, obj: str, mode: str) -> bool:
     until the mouth closes (bite) or 8 s -> retract -> verify the tool is empty."""
     run.begin_record("deliver", obj, mode)
     run.enter("MOVING", goal="deliver", attempt=1, action="stage")
-    run.do("stage", run.motion.stage)
+    r = run.do("stage", run.motion.stage)
+    if not r.ok:  # no point waiting for a mouth when the arm is not at the stage pose
+        raise NeedHelp(f"stage: {r.note}")
     run.yes_evt.clear()
     run.enter("LISTENING", action="waiting for an open mouth or 'yes'")
     if not _wait(run, lambda: run.face_state().mouth_open or run.yes_evt.is_set(), READY_TIMEOUT_S):
@@ -319,6 +321,8 @@ def attempt(run, n: int, history: list[dict]) -> bool:
         # The close said held; make sure it is still between the jaws after the lift.
         if run.arm.state().gripper_mm < 3:
             note = "slipped after close: the gripper is shut"
+    if not note and run.mode == "solid" and closes and not closes[-1].ok:
+        note = f"close: {closes[-1].note}"  # the gripper already says it missed: no VLM verify
     verdict = None if note else run.verify(f"Is {run.object} held in the {run.tool_word}?")
     ok = bool(verdict and verdict.ok) and (run.mode == "spoon" or bool(closes and closes[-1].ok))
     run.end_record(verdict, ok, lesson=plan.lesson, note=note,

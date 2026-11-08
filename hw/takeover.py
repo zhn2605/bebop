@@ -4,6 +4,7 @@ hangs (torque stays on, so the arm holds)."""
 
 from __future__ import annotations
 
+import atexit
 import os
 import signal
 import time
@@ -37,3 +38,4 @@ def take_over(wait_s: float = 20.0) -> None:
             time.sleep(0.5)
     PIDFILE.parent.mkdir(parents=True, exist_ok=True)
     PIDFILE.write_text(str(os.getpid()))
+    atexit.register(PIDFILE.unlink, missing_ok=True)

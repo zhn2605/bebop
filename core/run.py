@@ -351,6 +351,8 @@ class Runner:
         """HELP: ping the caregiver, wait for 'continue' or the dashboard (stop raises)."""
         self.enter("HELP", help=reason, action="waiting for the caregiver")
         self.notifier.help(f"{reason}. Say 'continue' or press Resume on the dashboard.", self.url)
+        if self.args.task:  # one request from the command line: report and exit, never linger
+            raise Abort(reason)
         print(f"HELP: {reason}. Resume on the dashboard or say 'continue'.")
         self.resume_evt.clear()
         while not self.resume_evt.wait(0.2):
