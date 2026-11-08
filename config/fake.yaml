@@ -1,0 +1,29 @@
+# Fake world (--fake). Agent A's keys (arm, food_xyz, food_width_mm, food_radius_mm, bowl_rim_z) go
+# above; `cameras` is the fake camera placement that perception.calib.fake_calibration renders with.
+
+# Fake arm (hw/arm.py fake mode): present = goal every tick, moves take duration * time_scale
+# (0 = instant), loads 0 except contact when the tip is at the food's top (over the food) or at
+# floor_z + 2 mm (elsewhere), or the gripper holds the food.
+arm:
+  start: home          # pose from `poses` the fake arm starts in
+  gripper_mm: 0
+  time_scale: 1.0
+  floor_z: 0
+food_xyz: [210, 0, 15]   # donut hole centre, base frame mm
+food_width_mm: 28        # what close() measures when the jaw tip is on the food
+food_radius_mm: 15
+bowl_rim_z: 40
+# Joint poses (LeRobot deg) for --fake; the real ones are taught into config/poses.yaml. Jaw tip:
+# home (180, 0, 120) pitch -45, stage (180, 0, 280) pitch 0, mouth (330, 0, 280) pitch 0.
+poses:
+  home:  {shoulder_pan: 0.0, shoulder_lift: -61.4, elbow_flex: 45.0, wrist_flex: 61.4, wrist_roll: 0.0}
+  stage: {shoulder_pan: 0.0, shoulder_lift: -68.9, elbow_flex: 20.3, wrist_flex: 48.6, wrist_roll: 0.0}
+  mouth: {shoulder_pan: 0.0, shoulder_lift: -5.1, elbow_flex: -17.5, wrist_flex: 22.6, wrist_roll: 0.0}
+
+# Fake camera placement, base frame mm (x forward, y left, z up). `up` is the world direction that
+# points to the top of the image. Frames are 640x480 with a focal length of f_px.
+cameras:
+  size: [640, 480]
+  f_px: 550
+  top: {pos: [250, 0, 700], look_at: [250, 0, 0], up: [1, 0, 0]}     # 700 mm above, straight down
+  side: {pos: [250, 600, 150], look_at: [250, 0, 60], up: [0, 0, 1]}  # 600 mm to the left

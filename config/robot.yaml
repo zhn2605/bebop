@@ -1,0 +1,70 @@
+# SO-101 follower arm (hw/arm.py, motion/kinematics.py). Angles are LeRobot degrees (use_degrees=True):
+# 0 deg = the middle of the range recorded in calibration/feeder_arm.json, not a physical pose.
+port: /dev/ttyACM0
+id: feeder_arm
+calibration_dir: calibration
+max_relative_target: 15.0  # deg per command (float!); LeRobot clamps each goal to present +- this.
+                           # Only a net against bugs: our interpolation limits speed. 5 made the
+                           # lift stall behind its goal under gravity.
+pid: {P_Coefficient: 32, I_Coefficient: 0, D_Coefficient: 32}  # servo gains; LeRobot's P=16 sags
+# Where the arm settles with torque off (read live 2026-11-08: lift at its back stop, elbow and
+# wrist folded). disconnect() moves here slowly before torque goes off, so nothing drops.
+rest_pose: {shoulder_pan: 80.0, shoulder_lift: -104.0, elbow_flex: 97.0, wrist_flex: 86.0, wrist_roll: 0.0}  # pan = fence_yaw_deg
+
+speed_deg_s: 60       # cap on any joint's peak speed; move durations are raised to respect it
+slow_factor: 0.4      # "slow" moves (descend, close, present) run at speed_deg_s * slow_factor
+hz: 50                # interpolation rate
+pause_timeout_s: 30   # a pause longer than this becomes a stop
+contact_load: 0.12    # load fraction (0..1) that counts as contact
+track_err_deg: 6      # |goal - present| above this, with load above contact_load, = contact
+
+# How to zero (tools.arm_check prints "lerobot" and "urdf" degrees and the FK tip at 2 Hz; `watch`):
+# 1. `torque off`, hold the arm in the URDF zero "L" pose: base facing straight forward, upper arm
+#    straight up, forearm level and pointing forward, gripper straight in line with the forearm,
+#    wrist_roll so the fixed jaw is underneath. 2. Copy each joint's lerobot reading into its
+#    zero_offset_deg below (urdf = sign * (lerobot - zero_offset_deg)). 3. With torque on, `q NAME +10`
+#    on each joint: the arm must move as the sign comments say; if it moves the other way set sign: -1
+#    (then redo step 2). 4. `xyz 200 0 80 -90` and check the jaw tip with a ruler from the table under
+#    the pan axis (x forward, y left, z up).
+# If calibration was done holding exactly the L pose, the offsets would be pan -3.4, lift -1.4,
+# elbow +13.2, wrist_flex +12.0, roll 0.0 (from feeder_arm.json); the values below assume the
+# recorded mid-range is the L pose instead. Both are UNVERIFIED on the real arm.
+# Limits = the ranges recorded in calibration/feeder_arm.json minus ~2.5 deg (pan +/-116.3,
+# lift +/-111.8, elbow +/-99.6, wrist_flex +/-91.6): the arm reaches everywhere it physically can.
+joints: &joints
+  shoulder_pan:  {min: -114, max: 114, zero_offset_deg: 0.0, sign: 1}   # + = turns right (clockwise from above)
+  shoulder_lift: {min: -109, max: 109, zero_offset_deg: 0.0, sign: 1}     # + = upper arm tips forward/down
+  elbow_flex:    {min: -97, max: 97, zero_offset_deg: 0.0, sign: 1}     # + = forearm bends down
+  wrist_flex:    {min: -89, max: 89, zero_offset_deg: 0.0, sign: 1}     # + = gripper pitches down
+  wrist_roll:    {min: -150, max: 150, zero_offset_deg: 0.0, sign: 1}   # + = clockwise seen from behind
+
+# Torque_Limit register (SRAM, 0..1000 = 0..100 % of stall torque), written at connect and torque on.
+torque_caps: {shoulder_pan: 700, shoulder_lift: 850, elbow_flex: 750, wrist_flex: 600, wrist_roll: 500, gripper: 400}
+
+# Gripper: LeRobot value 0 (closed) .. 100 (open) <-> jaw-tip opening in mm, two-point calibration.
+# Measure with `q gripper 0` and `q gripper 100` in tools.arm_check and a ruler between the jaw tips.
+gripper:
+  closed_mm_at_0: 0.0
+  open_mm_at_100: 60.0    # PLACEHOLDER, measure
+  max_mm: 55.0            # widest object the orchestrator will try to grasp
+  close_load: 0.3         # close_gripper stops when the gripper load passes this fraction
+  speed_pct_s: 100        # gripper speed cap, LeRobot units per second
+
+# Tool tips in the gripper frame (mm): origin at gripper_frame_link (LeRobot's TCP, between the jaw
+# tips), x along the wrist_roll axis away from the arm, y left, z up when pitch = roll = 0.
+tool_offsets:
+  jaw: [0.0, 0.0, 0.0]
+  marker: [-35.0, 0.0, 0.0]   # yellow tape wrapped round the gripper ~35 mm behind the jaw tips (ESTIMATE from a photo, measure)
+  spoon: [90.0, 0.0, -20.0]   # PLACEHOLDER, measure the spoon bowl centre with the spoon strapped in
+
+# Planar link geometry, mm, derived from the joint origins in so101_new_calib.urdf
+# (TheRobotStudio/SO-ARM100, Simulation/SO101) at q = 0, in the pan plane (r forward, z up).
+# The base frame origin is on the table under the pan axis (URDF base_link + 38.84 mm in x).
+geometry:
+  source: so101_new_calib.urdf
+  base_z: 0.0                         # base_link above the table; raise if the arm sits on a block
+  shoulder: [30.40, 116.60]           # pan axis/table -> shoulder_lift axis
+  upper_arm: [28.00, 112.57]          # shoulder_lift -> elbow_flex axis (116.0 mm)
+  forearm: [134.90, 5.20]             # elbow_flex -> wrist_flex axis (135.0 mm)
+  gripper_frame: [159.23, 0.0, -7.90] # wrist_flex axis -> gripper_frame_link, gripper frame
+  joints: *joints                     # zero offsets, signs and limits for Kinematics(geometry, ...)

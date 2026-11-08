@@ -1,0 +1,50 @@
+[project]
+name = "bebop"
+version = "0.1.0"
+description = "Byte to Bite: a self-correcting feeding arm on an SO-101"
+readme = "README.md"
+# lerobot 0.4.x; 0.5 needs 3.12
+requires-python = ">=3.10,<3.11"
+# system (pacman): uv portaudio v4l-utils
+dependencies = [
+    # arm (hw/, motion/)
+    "lerobot[feetech]>=0.4.1,<0.5",
+    "pyserial",
+    # cameras, marker, calibration, face (perception/)
+    "numpy",
+    "opencv-contrib-python>=4.9,<4.13",
+    "mediapipe>=1.2",
+    # planner and voice (brain/, voice/); the claude-code provider needs the `claude` CLI, logged in
+    "google-genai>=2.9,<4",
+    "vosk>=0.3.45",
+    "sounddevice>=0.5",
+    "faster-whisper>=1.2",
+    # orchestrator and dashboard (core/, dashboard/)
+    "pyyaml",
+    "fastapi",
+    "uvicorn>=0.30",
+]
+
+# `uv run NAME ...` from the repo root (config/ and data/ are relative to it)
+[project.scripts]
+bebop = "core.run:main"
+dashboard = "dashboard.server:main"
+arm-check = "tools.arm_check:main"
+teach = "tools.teach:main"
+calibrate = "tools.calibrate:main"
+list-cameras = "tools.list_cameras:main"
+face-check = "tools.face_check:main"
+voice-check = "tools.voice_check:main"
+esp32-check = "tools.esp32_check:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["brain", "core", "dashboard", "hw", "motion", "perception", "tools", "voice"]
+
+[tool.uv]
+# lerobot pulls opencv-python-headless and mediapipe opencv-contrib-python; both own cv2/, so drop
+# headless (contrib has everything lerobot uses).
+override-dependencies = ["opencv-python-headless; sys_platform == 'never'"]

@@ -1,0 +1,30 @@
+# Cameras. Run `python -m tools.list_cameras` and set each `source` to a /dev/video index or, better,
+# a stable /dev/v4l/by-id/... path (it survives replugging). Each USB camera usually shows two
+# /dev/video nodes; the first one of the pair captures. A camera that fails to open is skipped.
+cameras:
+  # Logitech C270 (serial 9F1DA990), straight down at the plate
+  top: {source: /dev/v4l/by-id/usb-046d_C270_HD_WEBCAM_9F1DA990-video-index0, width: 1280, height: 720}
+  # Logitech C270 (serial 343CA990), horizontal, looking at the plate from the side
+  side: {source: /dev/v4l/by-id/usb-046d_C270_HD_WEBCAM_343CA990-video-index0, width: 1280, height: 720}
+  # laptop camera, facing the person
+  face: {source: /dev/v4l/by-id/usb-CHICONY_Chicony_USB2.0_Camera_200901010001-video-index0, width: 640, height: 480}
+fps: 15
+
+# Tape marker on the fixed jaw tip. OpenCV HSV: H 0-179, S and V 0-255. Defaults = bright green.
+marker:   # yellow tape on the gripper, measured live on the C270 (H 18-31, S 123-207, V 121-230)
+  hsv_low: [16, 110, 110]
+  hsv_high: [38, 255, 255]
+  min_area: 80  # px, at the camera's resolution
+
+# Face signals (perception/face.py). Check signs with `python -m tools.face_check`: turning your head
+# to your left should make yaw positive and looking up should make pitch positive; flip the sign
+# otherwise. If the laptop camera sits off to one side, set yaw_offset_deg to the yaw it reads
+# while the person looks at the arm.
+face:
+  mouth_open_ratio: 0.35  # inner lip gap / mouth width
+  open_s: 0.3             # ratio above threshold this long -> mouth_open
+  away_yaw_deg: 30
+  away_s: 0.5             # |yaw| above away_yaw_deg or no face this long -> looking_away
+  yaw_sign: 1
+  pitch_sign: 1
+  yaw_offset_deg: 0

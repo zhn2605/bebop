@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Byte to Bite</title>
+<style>
+  :root { --bg: #f7f6f2; --fg: #1b1b1b; --mute: #6b6b6b; --line: #d9d6cc; --card: #ffffff;
+          --ok: #1f7a3a; --bad: #b3261e; --warn: #a86a00; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.4 system-ui, sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0 12px 0 0; }
+  #stage { font-weight: 700; padding: 2px 10px; border: 1px solid var(--line); border-radius: 4px; }
+  .led { width: 14px; height: 14px; border-radius: 50%; display: inline-block; background: #bbb;
+         vertical-align: middle; }
+  .led.green { background: #2e9e4f; } .led.yellow { background: #e0a800; } .led.red { background: #d0362b; }
+  header .spacer { flex: 1; }
+  button { font: inherit; padding: 6px 14px; border: 1px solid var(--fg); background: var(--card);
+           border-radius: 4px; cursor: pointer; }
+  button.stop { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
+  main { display: grid; gap: 12px; padding: 12px 16px;
+         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+            min-width: 0; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--mute);
+               margin: 0 0 8px; }
+  .streams { grid-column: 1 / -1; display: grid; gap: 10px;
+             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .streams figure { margin: 0; }
+  .streams img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #e6e3da;
+                 display: block; border-radius: 4px; }
+  .streams figcaption { color: var(--mute); font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--mute); font-weight: 500; white-space: nowrap; }
+  td.num, .mono { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); }
+  #strip { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  #strip .att { padding: 3px 9px; }
+  #strip .att.sel { outline: 2px solid var(--fg); }
+  #strip .att.ok { border-color: var(--ok); } #strip .att.bad { border-color: var(--bad); }
+  .wide { grid-column: 1 / -1; }
+  .frames { display: flex; gap: 8px; flex-wrap: wrap; }
+  .frames a img { height: 120px; border: 1px solid var(--line); border-radius: 3px; }
+  .frames figure { margin: 0; font-size: 11px; color: var(--mute); }
+  p.text { margin: 4px 0 8px; white-space: pre-wrap; }
+  #chartbox { position: relative; height: 240px; }
+  @media (max-width: 600px) { main { padding: 8px; } header { padding: 8px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Byte to Bite</h1>
+  <span class="led" id="led"></span>
+  <span id="stage">…</span>
+  <span id="headline" class="mono"></span>
+  <span class="spacer"></span>
+  <button class="stop" id="btn-stop" title="Freeze the arm">Stop</button>
+  <button id="btn-resume" title="Clear stop / continue after HELP; the arm goes home slowly">Resume</button>
+  <button id="btn-release" title="Torque off: the arm sags">Release torque</button>
+</header>
+<main>
+  <section class="streams" id="streams"></section>
+
+  <section>
+    <h2>Run</h2>
+    <table id="numbers"></table>
+  </section>
+
+  <section>
+    <h2>Arm</h2>
+    <table id="joints"></table>
+  </section>
+
+  <section>
+    <h2>Error and confidence per attempt</h2>
+    <div id="chartbox"><canvas id="chart"></canvas></div>
+  </section>
+
+  <section class="wide">
+    <h2>Attempts</h2>
+    <div id="strip"></div>
+    <div id="detail"><p class="text" style="color:var(--mute)">No attempts yet.</p></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha384-bs/nf9FbdNouRbMiFcrcZfLXYPKiPaGVGplVbv7dLGECccEXDW+S3zjqSKR5ZEaD" crossorigin="anonymous"></script>
+<script>
+const CAMS = ["top", "side", "face"];
+const JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"];
+let attempts = [], sel = -1, live = true, chart = null, lastAttemptsJson = "";
+
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function num(x, d = 1) { return (typeof x === "number") ? x.toFixed(d) : (x == null ? "–" : esc(x)); }
+function xyz(v) { return Array.isArray(v) ? v.map((x) => num(x, 0)).join(", ") : "–"; }
+function compact(o) {
+  if (o == null || o === "") return "";
+  if (typeof o !== "object") return typeof o === "number" ? num(o, 2) : esc(o);
+  if (Array.isArray(o)) return "[" + o.map((x) => (typeof x === "number" ? num(x, 1) : compact(x))).join(", ") + "]";
+  return Object.entries(o).map(([k, v]) => `${esc(k)}: ${compact(v)}`).join("; ");
+}
+function row(k, v, cls = "") { return `<tr><th>${esc(k)}</th><td class="num ${cls}">${v}</td></tr>`; }
+function ago(s) { const m = Math.floor(s / 60); return `${m}:${String(Math.floor(s % 60)).padStart(2, "0")}`; }
+
+function buildStreams(names) {
+  $("streams").innerHTML = CAMS.map((c) => names.includes(c)
+    ? `<figure><img src="/stream/${c}" alt="${c} camera"><figcaption>${c}</figcaption></figure>`
+    : `<figure><img alt=""><figcaption>${c}: not connected</figcaption></figure>`).join("");
+}
+
+function renderState(s) {
+  // Rebuilt when the connected program's cameras change or after the dashboard comes back.
+  const cams = (s.cameras || []).join(",");
+  if ($("streams").dataset.cams !== cams) { buildStreams(s.cameras || []); $("streams").dataset.cams = cams; }
+  $("stage").textContent = s.stage + (s.goal ? ` · ${s.goal}` : "");
+  $("led").className = "led " + (s.led || "");
+  $("headline").textContent = s.help ? `HELP: ${s.help}` : (s.task ? `“${s.task}”` : "");
+  const flags = Object.entries(s.flags || {}).map(([n, f]) => f.set
+    ? `<span class="bad">${esc(n)}</span> (${esc(f.reason)})` : `${esc(n)}: off`).join("<br>");
+  const arm = s.arm || {};
+  const tip = arm.tip ? arm.tip.xyz : null;
+  const face = s.face || {};
+  $("numbers").innerHTML = [
+    row("program", esc(s.source || "–") + (s.live ? "" : ` <span style="color:var(--mute)">(not connected)</span>`)),
+    row("stage", esc(s.stage)), row("goal", esc(s.goal || "–")),
+    row("attempt", s.attempt ? `${s.attempt} / ${s.max_attempts}` : "–"),
+    row("action", esc(s.action || "–") + (s.action_args && Object.keys(s.action_args).length ? ` <span style="color:var(--mute)">${compact(s.action_args)}</span>` : "")),
+    row("mode", esc(s.mode || "–") + (s.fake ? " (fake)" : "")), row("task", esc(s.task || "–")),
+    row("flags", flags || "–"),
+    row("tip xyz mm", xyz(tip)), row("target xyz mm", xyz(s.target_xyz)),
+    row("error px", compact(s.err_px) || "–"), row("error mm", num(s.err_mm)),
+    row("dist_cm", num(s.dist_cm)), row("LED", esc(s.led || "–")),
+    row("face", face.t ? `${face.present ? "present" : "absent"}, mouth ${face.mouth_open ? "open" : "closed"} (${num(face.mouth_ratio, 2)}), yaw ${num(face.yaw_deg, 0)}°${face.looking_away ? ", looking away" : ""}` : "–"),
+    row("heard", s.voice_error ? `<span class="bad">voice down: ${esc(s.voice_error)}</span>` : esc(s.voice || "–")),
+    row("last VLM", s.vlm_latency_s != null ? `${num(s.vlm_latency_s, 1)} s, $${num(s.vlm_cost_usd, 3)}` : "–"),
+    row("total cost", `$${num(s.cost_usd, 3)}` + (s.budget_usd != null ? ` of $${num(s.budget_usd, 2)}` : "")),
+    row("elapsed", ago(s.elapsed_s || 0)),
+  ].join("");
+  const q = arm.q || {}, goal = arm.goal || {}, load = arm.load || {};
+  $("joints").innerHTML = `<tr><th>joint</th><th>cmd °</th><th>actual °</th><th>load</th></tr>` +
+    JOINTS.filter((j) => j in q || j in load).map((j) => {
+      const l = load[j]; const lc = (typeof l === "number" && Math.abs(l) > 0.25) ? "bad" : "";
+      return `<tr><td>${j}</td><td class="num">${num(goal[j])}</td><td class="num">${num(q[j])}</td><td class="num ${lc}">${num(l, 2)}</td></tr>`;
+    }).join("") +
+    `<tr><td>gripper mm</td><td></td><td class="num">${num(arm.gripper_mm)}</td><td></td></tr>` +
+    `<tr><td>tip pitch °</td><td></td><td class="num">${arm.tip ? num(arm.tip.pitch, 0) : "–"}</td><td></td></tr>`;
+}
+
+function attemptOk(a) { return a.ok === true ? "ok" : (a.ok === false ? "bad" : ""); }
+
+function renderStrip() {
+  $("strip").innerHTML =
+    `<button id="prev" title="← previous">←</button><button id="next" title="→ next">→</button>` +
+    attempts.map((a, i) => `<button class="att ${attemptOk(a)} ${i === sel ? "sel" : ""}" data-i="${i}">` +
+      `${esc(a.goal === "deliver" ? "D" : "#")}${esc(a.n ?? i + 1)} ${a.ok === true ? "✓" : a.ok === false ? "✗" : "…"}</button>`).join("") +
+    `<label style="margin-left:8px"><input type="checkbox" id="live" ${live ? "checked" : ""}> Live</label>`;
+  $("prev").onclick = () => go(-1); $("next").onclick = () => go(1);
+  $("live").onchange = (e) => { live = e.target.checked; if (live) { sel = attempts.length - 1; renderAll(); } };
+  document.querySelectorAll("#strip .att").forEach((b) => b.onclick = () => { live = false; sel = +b.dataset.i; renderAll(); });
+}
+
+function renderDetail() {
+  const a = attempts[sel];
+  if (!a) { $("detail").innerHTML = `<p class="text" style="color:var(--mute)">No attempts yet.</p>`; return; }
+  const plan = a.plan || {}, pred = plan.prediction || {}, v = a.verdict || {};
+  const results = a.results || [];
+  const rows = results.map((r, k) => {
+    const act = (plan.actions || [])[k];
+    return `<tr><td>${esc(r.name)}</td><td class="num">${compact(act && act.name === r.name ? act.args : r.args)}</td>` +
+      `<td class="num">${compact(r.predicted)}</td><td class="num">${compact(r.measured)}</td>` +
+      `<td class="num">${compact(r.error)}</td><td class="${r.ok ? "ok" : "bad"}">${r.ok ? "ok" : "fail"}${r.stopped ? " (stopped)" : ""}</td>` +
+      `<td>${esc(r.note)}</td></tr>`;
+  }).join("");
+  const frames = Object.entries(a.frames || {}).map(([k, p]) =>
+    `<figure><a href="/frames/${encodeURI(p)}" target="_blank"><img src="/frames/${encodeURI(p)}" alt="${esc(k)}"></a><figcaption>${esc(k)}</figcaption></figure>`).join("");
+  $("detail").innerHTML = `
+    <table>
+      ${row("attempt", `${esc(a.goal)} #${esc(a.n)} <span class="${attemptOk(a)}">${a.ok === true ? "succeeded" : a.ok === false ? "failed" : "running"}</span>`)}
+      ${plan.target ? row("VLM boxes px", compact(plan.target)) : ""}
+      ${a.target_xyz ? row("target xyz mm", xyz(a.target_xyz) + (a.width_mm != null ? ` · width ${num(a.width_mm)} mm` : "")) : ""}
+      ${pred.success_prob != null ? row("prediction", `p=${num(pred.success_prob, 2)} · expects: ${esc(pred.expected)} · risk: ${esc(pred.risk)}`) : ""}
+      ${plan.escalate ? row("escalate", `<span class="bad">${esc(plan.escalate_reason)}</span>`) : ""}
+      ${a.verdict ? row("verdict", `<span class="${v.ok ? "ok" : "bad"}">${v.ok ? "yes" : "no"}</span> (${num(v.confidence, 2)}) ${esc(v.note)}`) : ""}
+      ${a.note ? row("note", esc(a.note)) : ""}
+      ${row("VLM", `${num(plan.latency_s, 1)} s, $${num(plan.cost_usd, 3)}`)}
+    </table>
+    ${plan.reasoning ? `<h2 style="margin-top:10px">Reasoning</h2><p class="text">${esc(plan.reasoning)}</p>` : ""}
+    ${plan.lesson ? `<h2>Lesson</h2><p class="text">${esc(plan.lesson)}</p>` : ""}
+    <h2>Actions</h2>
+    <div style="overflow-x:auto"><table><tr><th>action</th><th>args</th><th>predicted</th><th>measured</th><th>error</th><th>ok</th><th>note</th></tr>${rows}</table></div>
+    ${frames ? `<h2 style="margin-top:10px">Frames</h2><div class="frames">${frames}</div>` : ""}`;
+}
+
+function renderChart() {
+  if (typeof Chart === "undefined") return;
+  const acq = attempts.filter((a) => a.goal === "acquire");
+  const labels = acq.map((a, i) => `#${i + 1}`);
+  const err = acq.map((a) => a.err_mm ?? null);
+  const prob = acq.map((a) => (a.plan && a.plan.prediction) ? a.plan.prediction.success_prob : null);
+  const out = acq.map((a) => a.ok === true ? 1 : a.ok === false ? 0 : null);
+  if (!chart) {
+    chart = new Chart($("chart"), {
+      data: { labels, datasets: [
+        { type: "bar", label: "position error mm", data: err, yAxisID: "mm", backgroundColor: "#9aa7b8" },
+        { type: "line", label: "predicted success p", data: prob, yAxisID: "p", borderColor: "#a86a00", backgroundColor: "#a86a00", showLine: false, pointRadius: 6 },
+        { type: "line", label: "outcome (1/0)", data: out, yAxisID: "p", borderColor: "#1f7a3a", backgroundColor: "#1f7a3a", showLine: false, pointRadius: 5, pointStyle: "rectRot" },
+      ] },
+      options: { animation: false, maintainAspectRatio: false,
+        scales: { mm: { position: "left", beginAtZero: true, title: { display: true, text: "mm" } },
+                  p: { position: "right", min: 0, max: 1, grid: { drawOnChartArea: false } } } },
+    });
+  } else {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = err; chart.data.datasets[1].data = prob; chart.data.datasets[2].data = out;
+    chart.update();
+  }
+}
+
+function renderAll() {
+  if (live || sel < 0 || sel >= attempts.length) sel = attempts.length - 1;
+  renderStrip(); renderDetail();
+}
+
+function go(d) {
+  if (!attempts.length) return;
+  live = false;
+  sel = Math.max(0, Math.min(attempts.length - 1, sel + d));
+  renderAll();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "ArrowRight") go(1);
+});
+
+async function post(path, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  try {
+    const r = await fetch(path, { method: "POST" });
+    if (!r.ok) alert(`${path}: ${(await r.json()).detail || r.status}`);
+  } catch (e) { alert(`${path} failed: ${e}`); }
+}
+$("btn-stop").onclick = () => post("/stop");
+$("btn-resume").onclick = () => post("/resume");
+$("btn-release").onclick = () => post("/release", "Turn torque off? The arm will sag and fall.");
+
+async function pollState() {
+  try { renderState(await (await fetch("/state")).json()); }
+  catch (e) { $("stage").textContent = "dashboard down"; $("streams").dataset.cams = ""; }
+  setTimeout(pollState, 500);
+}
+async function pollAttempts() {
+  try {
+    const text = await (await fetch("/attempts")).text();
+    if (text !== lastAttemptsJson) {
+      lastAttemptsJson = text; attempts = JSON.parse(text);
+      renderAll(); renderChart();
+    }
+  } catch (e) { /* the state poll shows the disconnect */ }
+  setTimeout(pollAttempts, 1000);
+}
+pollState(); pollAttempts();
+</script>
+</body>
+</html>

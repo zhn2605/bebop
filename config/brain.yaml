@@ -1,0 +1,31 @@
+# VLM planner (brain/planner.py) and voice listener (voice/listener.py).
+
+provider: auto        # auto | claude-code | gemini; auto = gemini when GEMINI_API_KEY or GOOGLE_API_KEY is set
+model: null           # overrides the plan/verify model below for any provider (core.run --model)
+models:               # per provider: plan/verify model and the cheap text-only intent model
+  claude-code: {plan: sonnet, intent: haiku}
+  gemini: {plan: gemini-3.6-flash, intent: gemini-3.5-flash-lite}
+effort: null          # low | medium | high; claude --effort, Gemini thinking level; null = model default
+timeout_s: 60
+max_budget_usd: 0.25  # per call; the turn that crosses it fails
+grid: true            # draw the 0-1000 grid on plan images
+max_attempts: 3
+
+# Allowed arg ranges per plan action, [min, max]. open.width_mm max null = the gripper's max_mm.
+ranges:
+  move_to: {dz: [0, 150], pitch: [-90, 0]}
+  descend_until_contact: {max_dz: [10, 120]}
+  open: {width_mm: [5, null]}
+  close: {}
+  scoop: {depth_mm: [0, 40], drag_mm: [0, 60], tilt_deg: [0, 45]}
+  lift: {dz: [10, 150]}
+  retract: {}
+  home: {}
+
+voice:
+  # device: null = system default; an index or a name substring also works
+  stop_words: ["stop", "wait"]   # "halt" fired on room chatter in the live mic test; keep the list short
+  device: pipewire               # live test 2026-11-08: the pipewire device worked, index 7 here
+  whisper_model: base.en   # falls back to tiny.en
+  vad_threshold: 0.02      # RMS (0-1) above which a block counts as speech
+  silence_ms: 700          # silence that ends an utterance
