@@ -6,6 +6,7 @@ inside `move_joints` and millimetres between the jaw tips everywhere else.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import os
@@ -120,8 +121,20 @@ class Arm:
             use_degrees=True,
             max_relative_target=float(self.cfg.get("max_relative_target", 5.0)),
         )
-        self.robot = SO101Follower(rc)
-        self.robot.connect(calibrate=False)
+        for attempt in range(3):
+            self.robot = SO101Follower(rc)
+            try:
+                self.robot.connect(calibrate=False)
+                break
+            except (RuntimeError, ConnectionError) as e:
+                # At 5 V, torque coming on in all six servos at once sags the supply under their
+                # 4.5 V limit ("Input voltage error", seen live); a second try usually passes.
+                if "voltage" not in str(e).lower() or attempt == 2:
+                    raise
+                print(f"servo supply sagged while connecting ({str(e)[-40:]}); retrying")
+                with contextlib.suppress(Exception):
+                    self.robot.bus.port_handler.closePort()
+                time.sleep(1.0)
         bus = self.robot.bus
         if not self.robot.is_calibrated:  # servos disagree with the file: write the file, no prompt
             with bus.torque_disabled():
