@@ -59,8 +59,18 @@ def _ping_each(bus):
 
     def handshake() -> None:
         for name, m in bus.motors.items():
-            if bus.ping(m.id, num_retry=5) is None:
+            for _ in range(6):
+                _, comm, err = bus.packet_handler.ping(bus.port_handler, m.id)
+                if bus._is_comm_success(comm):
+                    break
+                time.sleep(0.05)
+            else:
                 raise ConnectionError(f"servo {m.id} ({name}) not answering")
+            if err & 1:  # the servo answers but flags its supply under Min_Voltage_Limit
+                raise ConnectionError(
+                    f"servo {m.id} ({name}) reports input voltage error: its supply is under its "
+                    "minimum voltage. The servo power is too weak (supply or adapter power input)."
+                )
 
     return handshake
 
