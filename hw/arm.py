@@ -6,7 +6,6 @@ inside `move_joints` and millimetres between the jaw tips everywhere else.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import math
 import os
@@ -38,53 +37,6 @@ def interrupt_on_exit_signals() -> None:
     if threading.current_thread() is threading.main_thread():
         for s in (signal.SIGTERM, signal.SIGHUP):
             signal.signal(s, _exit_signal)
-
-
-def find_port(port: str) -> str:
-    """`port`, or the first match when it is a glob: the adapter's by-id name carries its serial
-    number, which changes when the board is swapped (seen live)."""
-    if "*" not in port:
-        return port
-    import glob
-
-    found = sorted(glob.glob(port))
-    if not found:
-        raise ConnectionError(f"no arm adapter matches {port}: is the arm's USB plugged in?")
-    return found[0]
-
-
-def _staggered(enable_torque, bus):
-    """Torque on one servo at a time, 0.2 s apart. All six at once surges the current, the 5 V
-    supply sags under the servos' 4.5 V limit and LeRobot fails the connect; one at a time they
-    hold at 5.3-5.4 V (seen live through the Hiwonder BusLinker)."""
-
-    def enable(motors=None, num_retry: int = 0) -> None:
-        names = list(bus.motors) if motors is None else (
-            [motors] if isinstance(motors, (str, int)) else list(motors))
-        for m in names:
-            enable_torque(m, num_retry=num_retry)
-            time.sleep(0.2)
-
-    return enable
-
-
-def _ping_each(bus):
-    """The connect check, one servo at a time with retries. LeRobot's broadcast ping got no
-    replies through the Hiwonder BusLinker while single reads always worked (seen live)."""
-
-    def handshake() -> None:
-        for name, m in bus.motors.items():
-            for _ in range(6):
-                _, comm, err = bus.packet_handler.ping(bus.port_handler, m.id)
-                if bus._is_comm_success(comm):
-                    break
-                time.sleep(0.05)
-            else:
-                raise ConnectionError(f"servo {m.id} ({name}) not answering")
-            if err & 1:  # answers, but flags a supply dip under Min_Voltage_Limit (may be stale)
-                print(f"servo {m.id} ({name}) flags input voltage: the servo supply dipped")
-
-    return handshake
 
 
 def decode_load(raw: int) -> float:
@@ -149,30 +101,14 @@ class Arm:
                 f"no calibration {cal_dir / (rid + '.json')}; run lerobot-calibrate first"
             )
         rc = SO101FollowerConfig(
-            port=find_port(self.cfg["port"]),
+            port=self.cfg["port"],
             id=rid,
             calibration_dir=cal_dir,
             use_degrees=True,
             max_relative_target=float(self.cfg.get("max_relative_target", 5.0)),
         )
-        for attempt in range(5):
-            self.robot = SO101Follower(rc)
-            self.robot.bus._handshake = _ping_each(self.robot.bus)
-            self.robot.bus.enable_torque = _staggered(self.robot.bus.enable_torque, self.robot.bus)
-            try:
-                self.robot.connect(calibrate=False)
-                break
-            except (RuntimeError, ConnectionError) as e:
-                # At 5 V, torque coming on in all six servos at once sags the supply under their
-                # 4.5 V limit ("Input voltage error", seen live) and a servo may reboot; give it
-                # a moment and try again.
-                msg = str(e).lower()
-                if not ("voltage" in msg or "not answering" in msg) or attempt == 4:
-                    raise
-                print(f"servos not ready ({str(e).strip().splitlines()[-1][-60:]}); retrying")
-                with contextlib.suppress(Exception):
-                    self.robot.bus.port_handler.closePort()
-                time.sleep(2.0)
+        self.robot = SO101Follower(rc)
+        self.robot.connect(calibrate=False)
         bus = self.robot.bus
         if not self.robot.is_calibrated:  # servos disagree with the file: write the file, no prompt
             with bus.torque_disabled():

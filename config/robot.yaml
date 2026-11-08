@@ -1,6 +1,6 @@
 # SO-101 follower arm (hw/arm.py, motion/kinematics.py). Angles are LeRobot degrees (use_degrees=True):
 # 0 deg = the middle of the range recorded in calibration/feeder_arm.json, not a physical pose.
-port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_*-if00   # any CH343 servo adapter, any USB port
+port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6057664-if00   # the arm's adapter by name, any USB port
 id: feeder_arm
 calibration_dir: calibration
 max_relative_target: 15.0  # deg per command (float!); LeRobot clamps each goal to present +- this.
