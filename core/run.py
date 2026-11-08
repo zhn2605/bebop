@@ -124,6 +124,10 @@ class Runner:
             self.esp32 = Esp32(self.args.esp32, self.stop)
 
     def start(self) -> None:
+        if not self.args.fake:
+            from hw.takeover import take_over
+
+            take_over()  # an older run still holding the arm and cameras gets folded and stopped
         self.cameras.start()
         self.face.start()
         self.arm.connect()

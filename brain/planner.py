@@ -198,7 +198,10 @@ class Planner:
         images = {cam: ctx["images"][cam] for cam in PLAN_CAMERAS
                   if (ctx.get("images") or {}).get(cam)}
         if not images:
-            return _escalation("no top or side camera image")
+            return _escalation(
+                "no top or side camera image (is another bebop or tool still running and holding the "
+                "cameras? check the camera lines at startup)"
+            )
         caps = ctx.get("capabilities") or {}
         ranges = {
             name: {arg: [lo, caps.get("gripper_max_mm", _GRIPPER_MAX_MM) if hi is None else hi]

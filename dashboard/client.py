@@ -115,7 +115,8 @@ class Publisher:
                 busy = reply.get("busy", "")
                 if busy != self.busy:
                     if busy:
-                        print(f"dashboard: showing {busy}; this program goes on once it ends")
+                        print(f"dashboard: another {busy} is still running (it holds the page, and likely the arm and "
+                              "cameras); stop it first")
                     self.busy = busy
                 if busy:
                     self.sent_attempts = None
@@ -152,7 +153,7 @@ class Publisher:
             if tip is not None and cam in getattr(self.calib, "P", {}):
                 uv = self.calib.project(cam, tip)
                 anns.append({"type": "point", "uv": uv, "hollow": True, "color": "magenta",
-                             "label": "tip (calib)"})
+                             "label": "gripper from joints"})
             jpeg = self.cameras.jpeg(cam, anns)
             if jpeg:
                 frames[cam] = base64.b64encode(jpeg).decode("ascii")

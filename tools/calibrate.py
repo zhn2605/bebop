@@ -250,10 +250,10 @@ def check(
         pred, uv = cal.project(n, tip), find_marker(frame, cam_cfg)
         uvs[n] = uv
         ann = [
-            {"type": "point", "uv": pred, "hollow": True, "color": "magenta", "label": "predicted"}
+            {"type": "point", "uv": pred, "hollow": True, "color": "magenta", "label": "gripper from joints"}
         ]
         if uv:
-            ann.append({"type": "point", "uv": uv, "color": "green", "label": "marker"})
+            ann.append({"type": "point", "uv": uv, "color": "green", "label": "gripper seen"})
         cv2.imwrite(str(out / f"{n}.jpg"), draw(frame, ann))
         state.annotate(n, ann)
         d = f"{np.hypot(*np.subtract(uv, pred)):.1f} px" if uv else "marker not found"
@@ -292,6 +292,10 @@ def main() -> None:
     out = args.out or ROOT / ("data/calib_fake.json" if args.fake else "config/calib.json")
     cam_cfg = load("cameras.yaml")
     stop = Flag("stop")
+    if not args.fake:
+        from hw.takeover import take_over
+
+        take_over()
     arm, motion, ws = build(args.fake, stop)
     world = None
     if args.fake:

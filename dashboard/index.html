@@ -134,7 +134,7 @@ function renderState(s) {
     row("action", esc(s.action || "–") + (s.action_args && Object.keys(s.action_args).length ? ` <span style="color:var(--mute)">${compact(s.action_args)}</span>` : "")),
     row("mode", esc(s.mode || "–") + (s.fake ? " (fake)" : "")), row("task", esc(s.task || "–")),
     row("flags", flags || "–"),
-    row("tip xyz mm", xyz(tip)), row("target xyz mm", xyz(s.target_xyz)),
+    row("gripper xyz mm", xyz(tip)), row("food xyz mm", xyz(s.target_xyz)),
     row("error px", compact(s.err_px) || "–"), row("error mm", num(s.err_mm)),
     row("dist_cm", num(s.dist_cm)), row("LED", esc(s.led || "–")),
     row("face", face.t ? `${face.present ? "present" : "absent"}, mouth ${face.mouth_open ? "open" : "closed"} (${num(face.mouth_ratio, 2)}), yaw ${num(face.yaw_deg, 0)}°${face.looking_away ? ", looking away" : ""}` : "–"),
@@ -184,7 +184,7 @@ function renderDetail() {
     <table>
       ${row("attempt", `${esc(a.goal)} #${esc(a.n)} <span class="${attemptOk(a)}">${a.ok === true ? "succeeded" : a.ok === false ? "failed" : "running"}</span>`)}
       ${plan.target ? row("VLM boxes px", compact(plan.target)) : ""}
-      ${a.target_xyz ? row("target xyz mm", xyz(a.target_xyz) + (a.width_mm != null ? ` · width ${num(a.width_mm)} mm` : "")) : ""}
+      ${a.target_xyz ? row("food xyz mm", xyz(a.target_xyz) + (a.width_mm != null ? ` · width ${num(a.width_mm)} mm` : "")) : ""}
       ${pred.success_prob != null ? row("prediction", `p=${num(pred.success_prob, 2)} · expects: ${esc(pred.expected)} · risk: ${esc(pred.risk)}`) : ""}
       ${plan.escalate ? row("escalate", `<span class="bad">${esc(plan.escalate_reason)}</span>`) : ""}
       ${a.verdict ? row("verdict", `<span class="${v.ok ? "ok" : "bad"}">${v.ok ? "yes" : "no"}</span> (${num(v.confidence, 2)}) ${esc(v.note)}`) : ""}
@@ -194,7 +194,7 @@ function renderDetail() {
     ${plan.reasoning ? `<h2 style="margin-top:10px">Reasoning</h2><p class="text">${esc(plan.reasoning)}</p>` : ""}
     ${plan.lesson ? `<h2>Lesson</h2><p class="text">${esc(plan.lesson)}</p>` : ""}
     <h2>Actions</h2>
-    <div style="overflow-x:auto"><table><tr><th>action</th><th>args</th><th>predicted</th><th>measured</th><th>error</th><th>ok</th><th>note</th></tr>${rows}</table></div>
+    <div style="overflow-x:auto"><table><tr><th>action</th><th>args</th><th>expected</th><th>measured</th><th>error</th><th>ok</th><th>note</th></tr>${rows}</table></div>
     ${frames ? `<h2 style="margin-top:10px">Frames</h2><div class="frames">${frames}</div>` : ""}`;
 }
 
@@ -209,7 +209,7 @@ function renderChart() {
     chart = new Chart($("chart"), {
       data: { labels, datasets: [
         { type: "bar", label: "position error mm", data: err, yAxisID: "mm", backgroundColor: "#9aa7b8" },
-        { type: "line", label: "predicted success p", data: prob, yAxisID: "p", borderColor: "#a86a00", backgroundColor: "#a86a00", showLine: false, pointRadius: 6 },
+        { type: "line", label: "planner's success guess", data: prob, yAxisID: "p", borderColor: "#a86a00", backgroundColor: "#a86a00", showLine: false, pointRadius: 6 },
         { type: "line", label: "outcome (1/0)", data: out, yAxisID: "p", borderColor: "#1f7a3a", backgroundColor: "#1f7a3a", showLine: false, pointRadius: 5, pointStyle: "rectRot" },
       ] },
       options: { animation: false, maintainAspectRatio: false,

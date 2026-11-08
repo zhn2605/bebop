@@ -192,19 +192,19 @@ def plan_annotations(plan, target, calib, label: str) -> dict[str, list]:
         for cam in calib.names:
             uv = [float(v) for v in calib.project(cam, target)]
             anns.setdefault(cam, []).append(
-                {"type": "cross", "uv": uv, "color": "red", "label": "target"})
+                {"type": "cross", "uv": uv, "color": "red", "label": "food"})
     return anns
 
 
 def move_annotations(r: ActionResult) -> dict[str, list]:
-    """Predicted tip (hollow circle) and detected marker (filled circle) per camera."""
+    """Where the gripper should be (hollow circle) and where the camera sees its tape (filled) per camera."""
     anns: dict[str, list] = {}
     for cam, uv in (r.predicted.get("tip_uv") or {}).items():
         anns.setdefault(cam, []).append(
-            {"type": "point", "uv": uv, "color": "cyan", "label": "predicted", "hollow": True})
+            {"type": "point", "uv": uv, "color": "cyan", "label": "gripper goal", "hollow": True})
     for cam, uv in (r.measured.get("marker_uv") or {}).items():
         anns.setdefault(cam, []).append(
-            {"type": "point", "uv": uv, "color": "green", "label": "marker"})
+            {"type": "point", "uv": uv, "color": "green", "label": "gripper seen"})
     return anns
 
 

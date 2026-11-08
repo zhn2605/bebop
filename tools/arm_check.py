@@ -43,7 +43,12 @@ def load_cfg(name: str) -> dict:
 
 
 def setup(fake: bool) -> tuple[Arm, Motion, Flag]:
-    """Connected arm and Motion from config/, the fake ones with fake.yaml's poses and food."""
+    """Connected arm and Motion from config/, the fake ones with fake.yaml's poses and food.
+    Real: another bebop program on the arm is stopped first (hw.takeover)."""
+    if not fake:
+        from hw.takeover import take_over
+
+        take_over()
     rc, ws = load_cfg("robot.yaml"), load_cfg("workspace.yaml")
     fk = load_cfg("fake.yaml") if fake else {}
     stop = Flag("stop")
