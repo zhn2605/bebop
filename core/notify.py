@@ -15,7 +15,7 @@ class Notifier:
 
     def help(self, reason: str, url: str = "") -> bool:
         """Urgent: the robot is waiting for the caregiver. url opens on tap (the dashboard)."""
-        return self._post(reason, "Byte to Bite needs help", "high", "warning,robot", url)
+        return self._post(reason, "Byte to Bite: help requested", "high", "warning,robot", url)
 
     def info(self, msg: str) -> bool:
         return self._post(msg, "Byte to Bite", "default", "robot")

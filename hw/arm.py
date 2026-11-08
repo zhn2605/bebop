@@ -141,10 +141,11 @@ class Arm:
                 self.robot.disconnect()
             self.robot = None
 
-    def torque(self, on: bool) -> None:
-        """On: goal = present first so nothing jumps, then torque and caps. Off: the arm sags."""
+    def torque(self, on: bool, motors: list[str] | None = None) -> None:
+        """On: goal = present first so nothing jumps, then torque and caps. Off: the arm sags.
+        `motors` limits it to those servos (teaching by hand keeps the gripper holding)."""
         if self.robot is None:
-            self.torque_on = on
+            self.torque_on = on if motors is None else self.torque_on
             return
         bus = self.robot.bus
         with self._lock:
@@ -152,12 +153,13 @@ class Arm:
                 pos = bus.sync_read("Present_Position")
                 bus.sync_write("Goal_Position", pos)
                 self._goal = dict(pos)
-                bus.enable_torque()
+                bus.enable_torque(motors)
                 for m, v in self.cfg.get("torque_caps", {}).items():
                     bus.write("Torque_Limit", m, int(v))
             else:
-                bus.disable_torque()
-        self.torque_on = on
+                bus.disable_torque(motors)
+        if motors is None:
+            self.torque_on = on
 
     # --- low level --------------------------------------------------------------------------------
 
@@ -262,7 +264,7 @@ class Arm:
         """
         self._check_stop()
         self.frozen, self.halt_reason = False, ""
-        start, _ = self._read()
+        start, self.last_load = self._read()
         target = {k: self._clamp(k, float(v)) for k, v in q.items()}
         speed = min(float(speed_deg_s or self.speed), self.speed)
         gspeed = float(self.grip.get("speed_pct_s", 60)) * speed / self.speed
@@ -291,6 +293,7 @@ class Arm:
             goal = {k: start[k] + (target[k] - start[k]) * m for k in target}
             self._send(goal)
             pos, load = self._read()
+            self.last_load = load
             self._peak(load)
             max_load = max([max_load] + [abs(load[j]) for j in JOINTS])
             if s >= 1.0:

@@ -128,7 +128,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
             aim = (target[0] + applied[0], target[1] + applied[1], target[2])
             pose = target_pose(args, aim, run.hover_dz, pitch, run.kin, run.arm.tool)
             r = m.move_to(pose, speed=args.get("speed", "normal"))
-            enrich_move(r, run)
+            enrich_move(r, pose, run)
             d = hover_offset(r, run.calib)
             done = d is None or math.dist(d, applied) < SERVO_DONE_MM
             if not r.ok or done or step == SERVO_STEPS:
@@ -155,7 +155,10 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
             r.note = f"{r.note}; {clamp}" if r.note else clamp
         return r
     if a.name == "close":
-        return m.close(expect_mm=width)
+        r = m.close(expect_mm=width)
+        # Where the gripper really is once the jaws have shut: the grab's own position error.
+        enrich_move(r, run.arm.state().tip, run)
+        return r
     if a.name == "scoop":
         return m.scoop(float(args.get("depth_mm", 15)), float(args.get("drag_mm", 30)),
                        float(args.get("tilt_deg", 30)))
@@ -169,7 +172,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
         v = run.verify(str(args.get("question") or f"Is {run.object} held in the {run.tool_word}?"))
         return ActionResult("verify", v.ok, measured={"confidence": v.confidence, "note": v.note})
     if a.name == "ask_operator":
-        raise NeedHelp(str(args.get("question") or "the planner asked for the operator"))
+        raise NeedHelp(f"Planner requested help: {args.get('question') or 'no reason given'}")
     raise ValueError(f"unknown action {a.name!r}")
 
 
@@ -192,56 +195,62 @@ def fresh_frame(cameras, cam: str, after: float, timeout_s: float = 0.6):
         time.sleep(0.02)
 
 
-def marker_goal(run):
-    """Where the marker should be: FK of the commanded joints at the tape (robot.yaml
-    tool_offsets.marker), so sag and FK error count as error too."""
+def tape_goal(run):
+    """Where the tape should be: FK of the commanded joints at robot.yaml tool_offsets.marker, so
+    sag and FK error count as error too."""
     tool = "marker" if "marker" in run.kin.tools else run.arm.tool
     return run.kin.fk(run.arm.state().goal, tool).xyz
 
 
 def hover_offset(r: ActionResult, calib):
-    """(dx, dy) mm: where the arm put the marker minus where the top camera sees it, at the
-    marker's height; None when top didn't see it. Adding it to a target the top camera found
+    """(dx, dy) mm: where the arm put the tape minus where the top camera sees it, at the tape's
+    height; None when top didn't see it. Adding it to a target the top camera found
     lands the arm where the camera saw that target."""
-    seen, goal = (r.measured.get("marker_uv") or {}).get("top"), r.predicted.get("marker_xyz")
+    seen, goal = (r.measured.get("marker_uv") or {}).get("top"), r.predicted.get("tape_xyz")
     if seen is None or goal is None or "top" not in calib.names:
         return None
     x, y, _ = calib.at_height("top", seen, goal[2])
     return goal[0] - x, goal[1] - y
 
 
-def enrich_move(r: ActionResult, run) -> None:
-    """Adds the camera metrics of a move_to: where each camera should see the marker (tip_uv, from
-    marker_goal), where it does (marker_uv), the px between them, and mm_from_marker (the
-    triangulated marker against marker_goal)."""
+def enrich_move(r: ActionResult, pose: Pose, run) -> None:
+    """Adds the camera metrics of a move: tip_uv (the jaw point, drawn as the gripper goal),
+    tape_uv (where the commanded joints put the tape, tape_goal) against the seen marker_uv, the
+    px error between those two, and mm_from_marker (the triangulated tape against tape_goal)."""
     from perception.marker import find_marker
 
     cameras, calib = run.cameras, run.calib
     after = r.t1 or time.time()
-    goal = marker_goal(run)
-    tip_uv, marker_uv, px = {}, {}, {}
+    tape = tape_goal(run)
+    tip_uv, tape_uv, marker_uv, px = {}, {}, {}, {}
     for cam in PLAN_CAMS:
         if cam not in calib.names or cam not in cameras.names:
             continue
-        tip_uv[cam] = [round(float(v), 1) for v in calib.project(cam, goal)]
+        tip_uv[cam] = [round(float(v), 1) for v in calib.project(cam, pose.xyz)]
+        tape_uv[cam] = [round(float(v), 1) for v in calib.project(cam, tape)]
         # The predicted pixel steers the detector past yellow clutter elsewhere in the frame.
-        uv = find_marker(fresh_frame(cameras, cam, after), run.marker_cfg, near=tuple(tip_uv[cam]))
+        uv = find_marker(fresh_frame(cameras, cam, after), run.marker_cfg, near=tuple(tape_uv[cam]))
         if uv is not None:
             marker_uv[cam] = [round(float(v), 1) for v in uv]
-            px[cam] = round(math.dist(tip_uv[cam], marker_uv[cam]), 1)
-    r.predicted["marker_xyz"] = [round(float(v), 1) for v in goal]
+            px[cam] = round(math.dist(tape_uv[cam], marker_uv[cam]), 1)
+    r.predicted.setdefault("tip_xyz", [round(v, 1) for v in pose.xyz])
+    r.predicted["tape_xyz"] = [round(float(v), 1) for v in tape]
     r.predicted["tip_uv"] = tip_uv
+    r.predicted["tape_uv"] = tape_uv
     r.measured["marker_uv"] = marker_uv
     r.error["px"] = px
     if len(marker_uv) >= 2:
         seen = [round(float(v), 1) for v in calib.triangulate(marker_uv)]
         r.measured["marker_xyz"] = seen
-        r.error["mm_from_marker"] = round(math.dist(seen, goal), 1)
+        r.error["mm_from_marker"] = round(math.dist(seen, tape), 1)
 
 
 def position_error_mm(results: list[ActionResult]) -> float | None:
-    """The last move_to's camera error (mm_from_marker), else its FK error (xyz_mm)."""
+    """The camera error at the last close (where the grab happened), else the last move_to's
+    camera error (mm_from_marker) or FK error (xyz_mm)."""
     for r in reversed(results):
+        if r.name == "close" and r.error.get("mm_from_marker") is not None:
+            return float(r.error["mm_from_marker"])
         if r.name == "move_to":
             e = r.error.get("mm_from_marker", r.error.get("xyz_mm"))
             return None if e is None else float(e)
@@ -268,9 +277,12 @@ def move_annotations(r: ActionResult) -> dict[str, list]:
     for cam, uv in (r.predicted.get("tip_uv") or {}).items():
         anns.setdefault(cam, []).append(
             {"type": "point", "uv": uv, "color": "cyan", "label": "gripper goal", "hollow": True})
+    for cam, uv in (r.predicted.get("tape_uv") or {}).items():
+        anns.setdefault(cam, []).append(
+            {"type": "point", "uv": uv, "color": "green", "label": "tape expected", "hollow": True})
     for cam, uv in (r.measured.get("marker_uv") or {}).items():
         anns.setdefault(cam, []).append(
-            {"type": "point", "uv": uv, "color": "green", "label": "gripper seen"})
+            {"type": "point", "uv": uv, "color": "green", "label": "tape seen"})
     return anns
 
 
@@ -303,16 +315,24 @@ def deliver(run, obj: str, mode: str) -> bool:
     "yes" -> present behind the gate -> solid: open once the mouth stayed open 1 s; spoon: hold
     until the mouth closes (bite) or 8 s -> retract -> verify the tool is empty."""
     run.arm.tool = "spoon" if mode == "spoon" else "jaw"
+    for name, what, where in (
+        ("stage", "the spot in front of the mouth",
+         "about 15 cm in front of the person's mouth, held level"),
+        ("mouth", "the mouth", "right up to the person's lips"),
+    ):
+        if name not in run.motion.poses:
+            run.teach_pose(name, what, where)
     run.begin_record("deliver", obj, mode)
     run.enter("MOVING", goal="deliver", attempt=1, action="stage")
     r = run.do("stage", run.motion.stage)
     if not r.ok:  # no point waiting for a mouth when the arm is not at the stage pose
-        raise NeedHelp(f"stage: {r.note}")
+        raise NeedHelp(f"Move to the spot in front of the mouth failed ({r.note}).")
     run.yes_evt.clear()
     run.enter("LISTENING", action="waiting for an open mouth or 'yes'")
     if not _wait(run, lambda: run.face_state().mouth_open or run.yes_evt.is_set(), READY_TIMEOUT_S):
         run.do("retract", run.motion.retract)
-        raise NeedHelp(f"no open mouth or 'yes' within {READY_TIMEOUT_S:.0f} s at the stage pose")
+        raise NeedHelp(f"No open mouth and no \"yes\" within {READY_TIMEOUT_S:.0f} seconds at the "
+                       "spot in front of the mouth.")
     run.enter("PRESENTING", action="present")
     r = run.do("present", run.motion.present, run.gate, run.dist_cm)
     run.check()
@@ -369,11 +389,11 @@ def attempt(run, n: int, history: list[dict]) -> bool:
     run.check()
     if plan.escalate:
         run.end_record(None, False, note=f"escalated: {plan.escalate_reason}")
-        raise NeedHelp(plan.escalate_reason or "the planner escalated")
+        raise NeedHelp(f"Planner requested help: {plan.escalate_reason or 'no reason given'}")
     if width is not None and width > run.gripper_max * WIDE_FACTOR:
         run.end_record(None, False, note=f"{width:.0f} mm wide")
-        raise NeedHelp(f"{run.object} looks {width:.0f} mm wide; the gripper opens "
-                       f"{run.gripper_max:.0f} mm")
+        raise NeedHelp(f"{run.object} measures {width:.0f} mm wide. The gripper opens "
+                       f"{run.gripper_max:.0f} mm at most.")
     run.width = width
     note, moved = "", False
     if target is None:

@@ -88,8 +88,9 @@ def build(fake: bool, stop: Flag):
     fake_cfg = load("fake.yaml") if fake else None
     arm = Arm(robot, stop, fake=fake_cfg or False)
     arm.connect()
-    # FK at the ball's centre (robot.yaml tool_offsets.ball), else the tape marker's.
-    arm.tool = next(t for t in ("ball", "marker", "jaw") if t in arm.kin.tools)
+    # The tape sits behind the jaw tips; robot.yaml's `marker` tool offset puts the FK there.
+    # main() switches to the ball's centre (tool_offsets.ball) when cameras.yaml has a `ball:`.
+    arm.tool = "marker" if "marker" in arm.kin.tools else "jaw"
     poses = (fake_cfg.get("poses") if fake else load("poses.yaml")) or {}
     return arm, Motion(arm, arm.kin, Fence(ws), ws, poses), ws
 
@@ -115,13 +116,15 @@ def goto(motion, pose: Pose) -> str | None:
     return None if r.ok else (r.note or "move failed")
 
 
-def pick_moving(records: list[dict], cam: str, radius: float = 12.0) -> list[UV | None]:
+def pick_moving(
+    records: list[dict], cam: str, radius: float = 12.0, key: str = "blobs"
+) -> list[UV | None]:
     """Per record, the largest blob of `cam` that is not static. A blob position seen in at
     least a third of the records (within `radius` px) is food or clutter: the tape moves with
     the arm, so it never repeats. Seen live: donut holes share the tape's hue."""
     import numpy as np
 
-    all_pts = [uv for r in records for uv, _ in r["blobs"].get(cam, [])]
+    all_pts = [uv for r in records for uv, _ in r[key].get(cam, [])]
     threshold = max(2, len(records) // 3)
 
     def static(uv: UV) -> bool:
@@ -130,7 +133,7 @@ def pick_moving(records: list[dict], cam: str, radius: float = 12.0) -> list[UV 
 
     out = []
     for r in records:
-        moving = [uv for uv, _ in r["blobs"].get(cam, []) if not static(uv)]
+        moving = [uv for uv, _ in r[key].get(cam, []) if not static(uv)]
         out.append(moving[0] if moving else None)
     return out
 
@@ -138,9 +141,15 @@ def pick_moving(records: list[dict], cam: str, radius: float = 12.0) -> list[UV 
 def calibrate(
     arm, motion, cams, cam_cfg, poses: list[Pose], out: Path, state: State
 ) -> Calibration | None:
+    """With a `ball:` in cameras.yaml (arm.tool "ball") the ball fits the cameras and the tape
+    offset is then fitted through them; without one the tape does both, as before the ball."""
     import cv2
 
     from perception.marker import find_blobs
+
+    ball = arm.tool == "ball"
+    tape_cfg = cam_cfg.get("marker") or {}
+    look_for = cam_cfg.get("ball") if ball else tape_cfg
 
     frames_dir = ROOT / "data" / "calib_frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
@@ -157,12 +166,13 @@ def calibrate(
         frames = frames_after(cams, time.time())
         for n, f in frames.items():
             cv2.imwrite(str(frames_dir / f"{i:02d}-{n}.jpg"), f)
-        blobs = {n: find_blobs(f, cam_cfg)[:6] for n, f in frames.items()}
+        blobs = {n: find_blobs(f, look_for)[:6] for n, f in frames.items()}
+        tape = {n: find_blobs(f, tape_cfg)[:6] for n, f in frames.items()} if ball else blobs
         size.update({n: [f.shape[1], f.shape[0]] for n, f in frames.items()})
         tip = tuple(float(c) for c in arm.state().tip.xyz)
         seen = "  ".join(f"{n} {len(blobs.get(n, []))} blobs" for n in CAMS)
         print(f"{head} tip ({tip[0]:.0f},{tip[1]:.0f},{tip[2]:.0f})  {seen}")
-        records.append({"tip": tip, "blobs": blobs})
+        records.append({"tip": tip, "q": dict(arm.state().q), "blobs": blobs, "tape": tape})
         for n in CAMS:
             state.annotate(n, [
                 {"type": "point", "uv": uv, "color": "green" if k == 0 else "orange",
@@ -172,6 +182,9 @@ def calibrate(
     state.set(action="home, then fit")
     home(motion)
     picked = {n: pick_moving(records, n) for n in CAMS}
+    if not ball and fit_tape(arm.kin, records, picked, size):
+        for r in records:
+            r["tip"] = tuple(float(c) for c in arm.kin.fk(r["q"], "marker").xyz)
     samples = []
     for k, r in enumerate(records):
         uvs = {n: picked[n][k] for n in CAMS if picked[n][k] is not None}
@@ -181,10 +194,8 @@ def calibrate(
     print("frames saved under data/calib_frames/")
     print(f"{len(samples)} samples seen by {' and '.join(CAMS)}")
     if len(samples) < 8:
-        print(
-            "need at least 8: check the ball HSV range (cameras.yaml ball:), the lighting and "
-            "that both cameras see the ball"
-        )
+        what = "ball HSV range (cameras.yaml ball:)" if ball else "marker HSV range"
+        print(f"need at least 8: check the {what}, the lighting and that both cameras see it")
         state.set(stage="FAILED", help=f"only {len(samples)} samples; need 8")
         return None
     cal, kept = robust_fit(samples, size)
@@ -195,7 +206,8 @@ def calibrate(
               f"k1 {cal.dist[n][0]:+.3f}")
     state.set(err_px={n: round(float(v), 1) for n, v in px.items()})
     if mm is not None:
-        print(f"held-out triangulated ball vs FK: {mm:.1f} mm RMS (target < 5)")
+        what = "ball" if ball else "tape"
+        print(f"held-out triangulated {what} vs FK: {mm:.1f} mm RMS (target < 5)")
         state.set(err_mm=round(mm, 1))
     bad = cal.implausible(float(load("workspace.yaml").get("table_z", 0)))
     if bad:
@@ -208,12 +220,64 @@ def calibrate(
               f"rerun; the fit is in {out.name} for a look")
         state.set(stage="FAILED", help="; ".join(bad))
         return None
+    if ball:  # the tape the run re-aims by, located through the cameras the ball just fitted
+        tape_picked = {n: pick_moving(records, n, key="tape") for n in CAMS}
+        if not fit_tape(arm.kin, records, tape_picked, size, cal):
+            print("tape not seen in 8 poses by both cameras: its offset in robot.yaml is unchanged")
     cal.save(out)
     print(f"saved {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}")
     state.set(stage="CALIBRATED", action=f"saved {out.name}")
     for n in CAMS:
         state.annotate(n, [])
     return cal
+
+
+def fit_marker_offset(
+    kin, records: list[dict], picked: dict, size: dict, cal: Calibration | None = None
+) -> tuple[float, list] | None:
+    """(median px error, [x, 0, z]): where the tape sits on the gripper, found as the offset whose
+    FK points best explain the pixels: through `cal` when the ball already fitted the cameras,
+    else through cameras refitted per offset. Seen live: the photo guess (35 mm behind the tips)
+    was several cm off, which skewed every target the same way (grabs always came up short)."""
+    rows = [(r["q"], {n: picked[n][k] for n in CAMS}) for k, r in enumerate(records)
+            if all(picked[n][k] is not None for n in CAMS)]
+    if len(rows) < 8:
+        return None
+    best = None
+    for ox in range(-160, 21, 5):
+        for oz in range(-40, 41, 10):
+            kin.tools["_try"] = [float(ox), 0.0, float(oz)]
+            samples = [(kin.fk(q, "_try").xyz, uvs) for q, uvs in rows]
+            c = cal or Calibration.fit(samples, size)
+            score = float(np.median([np.hypot(*np.subtract(c.project(n, xyz), uv))
+                                     for xyz, uvs in samples for n, uv in uvs.items()]))
+            if best is None or score < best[0]:
+                best = (score, [float(ox), 0.0, float(oz)])
+    kin.tools.pop("_try", None)
+    return best
+
+
+def fit_tape(kin, records, picked, size, cal=None) -> bool:
+    """fit_marker_offset, then into kin and robot.yaml; False when too few poses saw the tape."""
+    fitted = fit_marker_offset(kin, records, picked, size, cal)
+    if fitted is None:
+        return False
+    score, off = fitted
+    print(f"tape offset fitted: {off} mm in the gripper frame (was {kin.tools['marker']}),"
+          f" median error {score:.1f} px; saved to config/robot.yaml")
+    kin.tools["marker"] = off
+    save_marker_offset(off)
+    return True
+
+
+def save_marker_offset(off: list) -> None:
+    import re
+
+    p = ROOT / "config" / "robot.yaml"
+    text = re.sub(r"(?m)^(\s*marker:\s*)\[[^\]]*\]([^\n]*)$",
+                  lambda m: f"{m.group(1)}[{off[0]:.1f}, {off[1]:.1f}, {off[2]:.1f}]"
+                            "   # yellow tape, fitted by tools.calibrate", p.read_text(), count=1)
+    p.write_text(text)
 
 
 def robust_fit(samples: list, size: dict) -> tuple[Calibration, list]:
@@ -328,13 +392,15 @@ def main() -> None:
     args = ap.parse_args()
     out = args.out or ROOT / ("data/calib_fake.json" if args.fake else "config/calib.json")
     cam_cfg = load("cameras.yaml")
-    look_for = cam_cfg.get("ball") or cam_cfg.get("marker") or {}  # the colour the sweep finds
     stop = Flag("stop")
     if not args.fake:
         from hw.takeover import take_over
 
         take_over()
     arm, motion, ws = build(args.fake, stop)
+    if cam_cfg.get("ball") and "ball" in arm.kin.tools:
+        arm.tool = "ball"  # calibrate on the ball held in the jaws
+    look_for = cam_cfg.get("ball") if arm.tool == "ball" else cam_cfg.get("marker") or {}
     world = None
     if args.fake:
         fk = arm.fake
@@ -368,7 +434,7 @@ def main() -> None:
         else:
             poses = grid(*fence_box(ws), float(ws.get("fence_yaw_deg", 0)))
             print(f"{len(poses)} poses; keep clear of the arm. Ctrl+C freezes it.")
-            cal = calibrate(arm, motion, cams, look_for, poses, out, state)
+            cal = calibrate(arm, motion, cams, cam_cfg, poses, out, state)
             if cal is not None:
                 pub.calib = cal  # the streams now show the new fit's tip
     except (KeyboardInterrupt, Stopped):
