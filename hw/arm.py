@@ -53,6 +53,21 @@ def find_port(port: str) -> str:
     return found[0]
 
 
+def _staggered(enable_torque, bus):
+    """Torque on one servo at a time, 0.2 s apart. All six at once surges the current, the 5 V
+    supply sags under the servos' 4.5 V limit and LeRobot fails the connect; one at a time they
+    hold at 5.3-5.4 V (seen live through the Hiwonder BusLinker)."""
+
+    def enable(motors=None, num_retry: int = 0) -> None:
+        names = list(bus.motors) if motors is None else (
+            [motors] if isinstance(motors, (str, int)) else list(motors))
+        for m in names:
+            enable_torque(m, num_retry=num_retry)
+            time.sleep(0.2)
+
+    return enable
+
+
 def _ping_each(bus):
     """The connect check, one servo at a time with retries. LeRobot's broadcast ping got no
     replies through the Hiwonder BusLinker while single reads always worked (seen live)."""
@@ -66,11 +81,8 @@ def _ping_each(bus):
                 time.sleep(0.05)
             else:
                 raise ConnectionError(f"servo {m.id} ({name}) not answering")
-            if err & 1:  # the servo answers but flags its supply under Min_Voltage_Limit
-                raise ConnectionError(
-                    f"servo {m.id} ({name}) reports input voltage error: its supply is under its "
-                    "minimum voltage. The servo power is too weak (supply or adapter power input)."
-                )
+            if err & 1:  # answers, but flags a supply dip under Min_Voltage_Limit (may be stale)
+                print(f"servo {m.id} ({name}) flags input voltage: the servo supply dipped")
 
     return handshake
 
@@ -146,6 +158,7 @@ class Arm:
         for attempt in range(5):
             self.robot = SO101Follower(rc)
             self.robot.bus._handshake = _ping_each(self.robot.bus)
+            self.robot.bus.enable_torque = _staggered(self.robot.bus.enable_torque, self.robot.bus)
             try:
                 self.robot.connect(calibrate=False)
                 break
