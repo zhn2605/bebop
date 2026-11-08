@@ -74,7 +74,14 @@ def locate(plan, calib, rim_z: float):
     if "top" not in boxes:
         return None, None
     if "side" in boxes:
-        xyz = calib.triangulate({c: center(boxes[c]) for c in PLAN_CAMS})
+        uv = {c: center(boxes[c]) for c in PLAN_CAMS}
+        xyz = calib.triangulate(uv)
+        # Views that disagree (a moved camera, or the side box on another piece; seen live:
+        # 180-490 px) give a point on neither box: trust the top camera at the rim height.
+        off = max(math.dist(calib.project(c, xyz), uv[c]) for c in uv)
+        if off > 40:
+            print(f"top and side disagree by {off:.0f} px: using the top camera alone")
+            xyz = calib.at_height("top", uv["top"], rim_z)
     else:
         xyz = calib.at_height("top", center(boxes["top"]), rim_z)
     xyz = tuple(round(float(v), 1) for v in xyz)

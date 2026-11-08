@@ -14,8 +14,9 @@ fence_yaw_deg: 80
 head_zone: {x: [300, 900], y: [-300, 300], z: [180, 900]}
 deliver_radius_mm: 40   # radius of the stage -> mouth corridor (flat end at the mouth)
 hover_dz: 40            # hover height above the target before descending
+grasp_clearance_mm: 8   # descents end this far above the table: jaws around the food's lower half
 table_z: -30            # live 2026-11-08: the base origin sits ~25 mm above the table surface (FK at rest read z -25)
-bowl_rim_z: 25          # default when the cameras can't tell; a flat paper plate + donut holes (live 2026-11-08)
+bowl_rim_z: -10         # food-top height for the top camera alone: a flat plate on the table (-30) + donut holes
 retract_dz: 60
 scoop_pitch: -60        # tool pitch for the scoop dip
 present: {stop_short_mm: 50, ultrasonic_stop_cm: 6, speed: slow}

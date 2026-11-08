@@ -5,10 +5,11 @@ Stateless: everything the model needs is in the blocks, so Gemini and Claude beh
 
 from __future__ import annotations
 
+import os
 import time
 
 from brain import grid, prompts
-from brain.providers import backend, pick
+from brain.providers import KEY_VARS, backend, pick
 from brain.providers.base import BackendError, Image, Text, Tool
 from core.types import Action, Intent, Plan, Prediction, Verdict
 
@@ -170,6 +171,8 @@ class Planner:
         self.cfg = cfg
         self.log = log
         self.provider = pick(cfg.get("provider") or "auto")
+        if self.provider == "gemini" and not any(os.environ.get(v) for v in KEY_VARS):
+            raise SystemExit("GEMINI_API_KEY is not set: export it, or run with --provider claude-code")
         models = (cfg.get("models") or {}).get(self.provider) or {}
         self.model = cfg.get("model") or models.get("plan")  # None = the backend's default
         self.intent_model = models.get("intent") or self.model
@@ -187,6 +190,7 @@ class Planner:
                                             INTENT_TOOL, [Text(f"They said: {text!r}")], parse)
         except BackendError as e:
             self._emit("vlm_error", call="intent", error=str(e))
+            print(f"VLM error, request ignored: {e}")
             return Intent("none", text=text)
         return intent or Intent("none", text=text)
 

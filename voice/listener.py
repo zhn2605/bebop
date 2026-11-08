@@ -59,10 +59,6 @@ def whisper_model(name: str):
     raise error
 
 
-def _has_word(text: str, word: str) -> bool:
-    return f" {word} " in f" {text} "
-
-
 class Listener(threading.Thread):
     """on_stop(word) fires on a stop word in a partial result, once per utterance;
     on_utterance(text) gets each transcribed utterance; on_partial(text), when given, each new
@@ -74,6 +70,7 @@ class Listener(threading.Thread):
         cfg = cfg.get("voice", cfg)
         self.device = cfg.get("device")
         self.stop_words = [w.lower() for w in cfg.get("stop_words") or STOP_WORDS]
+        self.stop_conf = float(cfg.get("stop_conf", 0.9))
         self.whisper_name = cfg.get("whisper_model", "base.en")
         self.vad_threshold = float(cfg.get("vad_threshold", 0.02))
         self.silence_s = cfg.get("silence_ms", 700) / 1000
@@ -98,6 +95,7 @@ class Listener(threading.Thread):
         vosk.SetLogLevel(-1)
         grammar = json.dumps([*self.stop_words, "[unk]"])
         self._rec = vosk.KaldiRecognizer(vosk.Model(str(vosk_model_dir())), RATE, grammar)
+        self._rec.SetWords(True)  # per-word confidence on final results
         self._whisper = whisper_model(self.whisper_name)
         threading.Thread(target=self._transcribe, name="transcriber", daemon=True).start()
 
@@ -140,13 +138,18 @@ class Listener(threading.Thread):
 
     def _spot(self, data: bytes) -> None:
         if self._rec.AcceptWaveform(data):
-            text, final = json.loads(self._rec.Result()).get("text", ""), True
+            res = json.loads(self._rec.Result())
+            text, final = res.get("text", ""), True
         else:
+            res = {}
             text, final = json.loads(self._rec.PartialResult()).get("partial", ""), False
         if text and text != self._partial and self.on_partial:
             self.on_partial(text)
         self._partial = "" if final else text
-        word = next((w for w in self.stop_words if _has_word(text, w)), None)
+        # Only a confident word in a final result counts: the grammar forces every sound into a
+        # stop word, so partials fired on room noise (seen live: a false "stop" mid-move).
+        word = next((w["word"] for w in res.get("result", [])
+                     if w.get("word") in self.stop_words and w.get("conf", 0) >= self.stop_conf), None)
         if word and not self._fired:
             self._fired = True
             self.on_stop(word)

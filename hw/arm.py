@@ -125,9 +125,10 @@ class Arm:
 
     def disconnect(self, rest: bool = True) -> None:
         """Fold slowly into robot.yaml's `rest_pose` (the pose the arm settles into without
-        torque, so nothing drops when torque goes off), then torque off and close the port.
-        Skipped after a stop: an e-stopped arm is left where it froze."""
-        if rest and self.robot is not None and self.torque_on and not self.stop.is_set():
+        torque, so nothing drops when torque goes off), then torque off and close the port. Also
+        after a stop: torque off without the fold drops the arm."""
+        if rest and self.robot is not None and self.torque_on:
+            self.stop.clear()
             pose = self.cfg.get("rest_pose")
             if pose:
                 try:
@@ -171,8 +172,9 @@ class Arm:
             return dict(self._pos), load
         bus = self.robot.bus
         with self._lock:
-            pos = bus.sync_read("Present_Position")
-            raw = bus.sync_read("Present_Load", normalize=False)
+            # retries: at 5 V the servos brown out for a moment when a move starts (seen live)
+            pos = bus.sync_read("Present_Position", num_retry=3)
+            raw = bus.sync_read("Present_Load", normalize=False, num_retry=3)
         return {m: float(pos[m]) for m in MOTORS}, {m: decode_load(raw[m]) for m in MOTORS}
 
     def _send(self, goal: dict[str, float]) -> None:

@@ -50,6 +50,7 @@ class Motion:
         self.poses = poses or {}
         self.pause = pause
         self.bowl_rim_z = float(cfg.get("bowl_rim_z", 40))
+        self.grasp_clearance = float(cfg.get("grasp_clearance_mm", 8))
         self.contact_load = float(arm.cfg.get("contact_load", 0.25))
         self.track_err = float(arm.cfg.get("track_err_deg", 6))
         self._segment()
@@ -177,7 +178,7 @@ class Motion:
         limit = float(load if load is not None else self.contact_load)
         st = self.arm.state()
         a, base = st.tip, st.load
-        floor = max(self.fence.table_z, float(self.fence.box["z"][0]))
+        floor = max(self.fence.table_z + self.grasp_clearance, float(self.fence.box["z"][0]))
         r.predicted["contact_z"] = _r(expect_z if expect_z is not None else a.xyz[2] - max_dz)
         dz, peak, contact, at_floor = 0.0, 0.0, False, False
         while dz < max_dz - 1e-6:

@@ -432,7 +432,10 @@ class Runner:
         try:
             self.start()
             self.arm.torque(True)
-            self.home()
+            try:
+                self.home()
+            except Stopped:
+                self.stopped()
             self.ready()
             if self.args.task:
                 intent = self.planner.intent(self.args.task)

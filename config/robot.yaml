@@ -15,7 +15,8 @@ speed_deg_s: 60       # cap on any joint's peak speed; move durations are raised
 slow_factor: 0.4      # "slow" moves (descend, close, present) run at speed_deg_s * slow_factor
 hz: 50                # interpolation rate
 pause_timeout_s: 30   # a pause longer than this becomes a stop
-contact_load: 0.12    # load fraction (0..1) that counts as contact
+contact_load: 0.3     # load rise (0..1) that counts as contact; 0.12 fired on the elbow's own load
+                      # change 5 mm into every descent (seen live), so grabs closed 3-5 cm too high
 track_err_deg: 6      # |goal - present| above this, with load above contact_load, = contact
 
 # How to zero (tools.arm_check prints "lerobot" and "urdf" degrees and the FK tip at 2 Hz; `watch`):
