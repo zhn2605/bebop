@@ -49,6 +49,8 @@ gripper:
   open_mm_at_100: 60.0    # PLACEHOLDER, measure
   max_mm: 55.0            # widest object the orchestrator will try to grasp
   close_load: 0.3         # close_gripper stops when the gripper load passes this fraction
+  gap_dir: [0, 0, 1]      # fixed jaw -> moving jaw in the gripper frame (z = up when level at roll 0);
+                          # solid grabs aim the gap's middle at the food. Wrong side: [0, 0, -1]
   speed_pct_s: 100        # gripper speed cap, LeRobot units per second
 
 # Tool tips in the gripper frame (mm): origin at gripper_frame_link (LeRobot's TCP, between the jaw

@@ -13,7 +13,8 @@ import threading
 import time
 from dataclasses import asdict
 
-from core.types import Action, ActionResult, Pose
+from core.types import Action, ActionResult, Pose, Unreachable
+from motion.kinematics import approach
 
 PLAN_CAMS = ("top", "side")
 BITE_TIMEOUT_S = 8.0
@@ -88,13 +89,21 @@ def locate(plan, calib, rim_z: float):
     return xyz, round(float(calib.width_mm("top", boxes["top"], xyz[2])), 1)
 
 
-def target_pose(args: dict, target, hover_dz: float, pitch: float) -> Pose:
-    """move_to's pose: at "target" means the target xyz raised by dz, with the plan's pitch."""
+def target_pose(args: dict, target, hover_dz: float, pitch: float, kin=None, tool="jaw") -> Pose:
+    """move_to's pose: at "target" means dz back from the target along the tool axis (straight up
+    at pitch -90), at the plan's pitch or the nearest one IK reaches the target with."""
     if args.get("at", "target") != "target":
         raise ValueError(f"move_to at {args.get('at')!r}: only \"target\" is known")
     x, y, z = target
     dz = float(args.get("dz", hover_dz))
-    return Pose((x, y, z + dz), float(args.get("pitch", pitch)), float(args.get("roll", 0.0)))
+    p, roll = float(args.get("pitch", pitch)), float(args.get("roll", 0.0))
+    if kin is not None:
+        try:
+            p = kin.ik_any_pitch(Pose((x, y, z), p, roll), tool)[1].pitch
+        except Unreachable:
+            pass
+    d = approach(p, math.atan2(y, x))
+    return Pose((x - d[0] * dz, y - d[1] * dz, z - d[2] * dz), p, roll)
 
 
 def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
@@ -102,7 +111,7 @@ def dispatch(run, a: Action, target, width: float | None) -> ActionResult:
     m, args = run.motion, a.args
     if a.name == "move_to":
         pitch = -60.0 if run.mode == "spoon" else -90.0
-        pose = target_pose(args, target, run.hover_dz, pitch)
+        pose = target_pose(args, target, run.hover_dz, pitch, run.kin, run.arm.tool)
         r = m.move_to(pose, speed=args.get("speed", "normal"))
         enrich_move(r, pose, run.cameras, run.calib, run.marker_cfg)
         return r
@@ -243,6 +252,7 @@ def deliver(run, obj: str, mode: str) -> bool:
     """The fixed deliver sequence; the VLM only verifies. stage -> wait for an open mouth or a
     "yes" -> present behind the gate -> solid: open once the mouth stayed open 1 s; spoon: hold
     until the mouth closes (bite) or 8 s -> retract -> verify the tool is empty."""
+    run.arm.tool = "spoon" if mode == "spoon" else "jaw"
     run.begin_record("deliver", obj, mode)
     run.enter("MOVING", goal="deliver", attempt=1, action="stage")
     r = run.do("stage", run.motion.stage)
@@ -291,6 +301,13 @@ def attempt(run, n: int, history: list[dict]) -> bool:
     plan = run.planner.plan(ctx)
     run.spent(plan.cost_usd, plan.latency_s)
     target, width = locate(plan, run.calib, run.rim_z)
+    if run.mode == "solid":
+        # Aim the middle of the jaw gap at the food, not the fixed jaw tip (seen live: the fixed
+        # jaw landed on the food and pushed it away). gap_dir: fixed -> moving jaw, gripper frame.
+        half = min(run.gripper_max, (width or 30.0) + 15.0) / 2
+        gap = (run.robot.get("gripper") or {}).get("gap_dir", [0.0, 0.0, 1.0])
+        run.kin.tools["grasp"] = [half * float(v) for v in gap]
+        run.arm.tool = "grasp"
     run.begin_record("acquire", run.object, run.mode, n=n, plan=plan, target_xyz=target,
                      width_mm=width, frames=frames)
     run.log.emit("plan", attempt=n, plan=plan, target_xyz=target, width_mm=width)

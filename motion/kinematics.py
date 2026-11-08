@@ -17,6 +17,13 @@ def _wrap(a: float) -> float:
     return (a + 180.0) % 360.0 - 180.0
 
 
+def approach(pitch: float, yaw: float) -> Vec3:
+    """Unit vector the tool points along: pitch in degrees (-90 = down), yaw in radians (the pan
+    direction, atan2(y, x) of the tip)."""
+    p = math.radians(pitch)
+    return (math.cos(p) * math.cos(yaw), math.cos(p) * math.sin(yaw), math.sin(p))
+
+
 class Kinematics:
     def __init__(self, geometry: dict, tool_offsets: dict, joints: dict | None = None):
         g = geometry

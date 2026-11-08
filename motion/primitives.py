@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 
 from core.types import GRIPPER, JOINTS, ActionResult, Pose, Stopped, TrackResult, Unreachable
-
+from motion.kinematics import approach
 
 
 def _lerp(a, b, s: float) -> tuple:
@@ -179,16 +179,22 @@ class Motion:
         st = self.arm.state()
         a, base = st.tip, st.load
         floor = max(self.fence.table_z + self.grasp_clearance, float(self.fence.box["z"][0]))
-        r.predicted["contact_z"] = _r(expect_z if expect_z is not None else a.xyz[2] - max_dz)
+        r.predicted["contact_z"] = _r(expect_z if expect_z is not None
+                                      else a.xyz[2] + max_dz * approach(a.pitch, 0.0)[2])
+        # Along the way the tool points (straight down at pitch -90), so a tilted gripper slides in
+        # toward the food instead of dropping sideways onto it. dz = distance along that axis.
+        d = approach(a.pitch, math.atan2(a.xyz[1], a.xyz[0]))
+        down = max(-d[2], 0.2)  # height lost per mm along the axis
         dz, peak, contact, at_floor = 0.0, 0.0, False, False
         while dz < max_dz - 1e-6:
-            step = min(5.0, max_dz - dz, a.xyz[2] - dz - floor)
+            step = min(5.0, max_dz - dz, (a.xyz[2] - floor) / down - dz)
             if step <= 1e-6:
                 at_floor = True
                 break
+            s = dz + step
             tr = self._go(
                 r,
-                Pose((a.xyz[0], a.xyz[1], a.xyz[2] - dz - step), a.pitch, a.roll),
+                Pose(tuple(a.xyz[i] + d[i] * s for i in range(3)), a.pitch, a.roll),
                 "slow",
                 "acquire",
             )
