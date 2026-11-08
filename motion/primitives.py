@@ -7,6 +7,7 @@ On a stop the action raises `Stopped` with the partial result attached as `e.res
 from __future__ import annotations
 
 import functools
+import itertools
 import math
 import time
 from collections.abc import Callable
@@ -78,7 +79,7 @@ class Motion:
         """The elbow and wrist stay 10 mm above the table along the joint path through qs (seen
         live: a calibration move drove the gripper into the table and broke the wrist)."""
         floor = self.fence.table_z + 10.0
-        for q0, q1 in zip(qs, qs[1:]):
+        for q0, q1 in itertools.pairwise(qs):
             for i in range(1, n + 1):
                 q = {j: q0[j] + (q1[j] - q0[j]) * i / n for j in JOINTS}
                 pts = self.kin.chain(q, self.arm.tool)
