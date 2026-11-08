@@ -99,8 +99,9 @@ The person being fed (voice and face only):
 - Looking away while it picks food pauses it; turning away while it presents stops it.
 
 The caregiver: the ESP32 button, the space bar in the run's terminal, and the dashboard. Stop freezes
-the arm (it holds); a second stop, or Release, turns torque off. Resume (or saying "continue") clears
-the stop and the arm goes home slowly. After three failed attempts, or when the planner says it is
+the arm, then after a second it goes home slowly and holds there with torque on (a stop on the way
+freezes it where it is). Only Release turns torque off. Resume (or saying "continue") goes on with
+the task. After three failed attempts, or when the planner says it is
 unsafe, the robot goes to HELP: red LED, a phone notification, and it waits for Resume or "continue".
 
 ## Caregiver phone notifications (ntfy)
@@ -116,10 +117,10 @@ unsafe, the robot goes to HELP: red LED, a phone notification, and it waits for 
   it, and keep the person out of reach until the poses and the fence (`config/workspace.yaml`) are
   checked.
 - Torque off makes the arm sag and drop. A normal end of a run first folds the arm slowly into
-  `rest_pose` (`config/robot.yaml`), so nothing drops. Ctrl+C, Release and a second stop cut torque
-  where the arm froze: keep a hand under the arm, and keep the delivery pose low so it falls away
+  `rest_pose` (`config/robot.yaml`), so nothing drops. Ctrl+C folds to rest too. Release cuts torque
+  where the arm is: keep a hand under the arm, and keep the delivery pose low so it falls away
   from the face.
-- Stop = freeze and hold; nothing moves again until someone resumes, and then only home, slowly.
+- Stop = freeze, then home slowly and hold there; nothing else moves until someone resumes.
 - The ESP32 must be connected for a real demo: its button is the e-stop and silence for 500 ms
   counts as one. The final approach is slow, gated by the face camera and the ultrasonic sensor.
 - The VLM only returns pixels and choices; every move goes through the fence and the speed cap.

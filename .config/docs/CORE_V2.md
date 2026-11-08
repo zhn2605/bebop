@@ -188,8 +188,9 @@ State machine (ESP32 state in brackets):
    `open()` once the mouth has been open 1 s at the present point; spoon: hold until `mouth_open`
    goes false (bite) or 8 s → `retract()` → `verify("Is the <tool> empty?")`.
 4. Flags: `stop` (voice stop word, ESP32 e-stop, space in the terminal, dashboard button, face lost
-   during `present`) → arm frozen, state STOPPED, everything waits; voice "continue" or the dashboard
-   button clears it and the arm goes home slowly. `pause` (looking away during acquire) → hold, then
+   during `present`) → arm frozen, state STOPPED; after 1 s it goes home slowly and holds there
+   (torque on; a stop on the way freezes it where it is); voice "continue" or the dashboard button
+   goes on with the task. `pause` (looking away during acquire) → hold, then
    resume when the face is back.
 5. Every stage change, plan, action, verdict and flag is an event. Frames at plan time and after
    each attempt are saved and linked in `attempts`.
@@ -217,9 +218,10 @@ outcome). `--fake` runs it the same way.
 
 ## Safety (S-numbers carry over from CORE.md)
 Torque caps written at connect; speed cap and slow factor on `present`, `descend_until_contact`,
-`close`; fence and head zone; contact detection from tracking error + load; `stop` = freeze (hold),
-a second trip or the dashboard "release" = torque off; ultrasonic gates `present` only; the person's
-controls are voice and face only, the caregiver has the ESP32 button and the laptop keyboard;
+`close`; fence and head zone; contact detection from tracking error + load; `stop` = freeze, then
+home slowly and hold (torque on; a stop on the way freezes it there), only the dashboard "release" =
+torque off; ultrasonic gates `present` only; the person's controls are voice and face only, the
+caregiver has the ESP32 button and the laptop keyboard;
 HELP notifications go to a phone via ntfy.
 
 ## Tools

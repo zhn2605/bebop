@@ -4,8 +4,9 @@ python -m core.run [--task TEXT | --voice] --mode solid|spoon [--fake] [--provid
                    [--no-dashboard] [--port 8000] [--esp32 PORT] [--ntfy TOPIC] [--budget USD]
 
 --task runs one task and exits. Without it the run listens: utterances -> intent() -> tasks.
-Stop: a voice stop word, the ESP32 button, space in this terminal, or the dashboard. A second stop
-while STOPPED (or the dashboard's Release) turns torque off. Ctrl+C: freeze, torque off, exit 130.
+Stop: a voice stop word, the ESP32 button, space in this terminal, or the dashboard. The arm
+freezes, then goes home slowly and holds there with torque on; a stop on the way freezes it where it
+is. Only the dashboard's Release turns torque off. Ctrl+C: freeze, fold to rest, torque off, exit 130.
 """
 
 from __future__ import annotations
@@ -180,10 +181,8 @@ class Runner:
     # -- flags, voice, telemetry (other threads) ------------------------------------------------
 
     def trip_stop(self, reason: str) -> None:
-        """Every stop source lands here. A second stop while STOPPED turns torque off."""
-        if self.stop.is_set() and self.state.get("stage") == "STOPPED":
-            self.release(f"second stop: {reason}")
-            return
+        """Every stop source lands here: freeze. Never torque off (a repeated "stop" used to drop
+        the arm); that is the dashboard's Release only."""
         self.stop.trip(reason)
         self.log.emit("flag", flag="stop", reason=reason)
         print(f"\nSTOP: {reason}")
@@ -441,23 +440,38 @@ class Runner:
             self.cur = None
 
     def stopped(self) -> bool:
-        """STOPPED: the arm holds; wait for the stop to clear, then go home slowly. False when
-        torque was released meanwhile (the task is cancelled)."""
+        """STOPPED: the arm froze. After a second it goes home slowly and holds there, torque on
+        (nothing drops); a stop on the way freezes it where it is, and it is not tried again.
+        Then it waits for Resume or "continue" before the task goes on. False when torque was
+        released meanwhile (the task is cancelled)."""
         if self.cur is not None:  # close the interrupted attempt's record
             self.state.update_attempt(self.cur, ok=False, note=f"stopped: {self.stop.reason}")
             self.cur = None
+        why, auto_home, at_home = self.stop.reason, True, False
         while True:
             try:
-                self.enter("STOPPED", reason=self.stop.reason)
-                while self.stop.is_set():
-                    time.sleep(0.1)
+                if auto_home and not self.released:
+                    auto_home = False
+                    self.enter("STOPPED", reason=why, action="going home slowly in a second")
+                    time.sleep(1.0)  # the freeze settles and hands get clear before it moves
+                    if not self.released:
+                        self.stop.clear()
+                        self.home(slow=True)
+                        at_home = True
+                self.enter("STOPPED", reason=why, action="holding: Resume or say 'continue'")
+                self.resume_evt.clear()
+                while not self.resume_evt.wait(0.2):
+                    pass
+                self.resume_evt.clear()
+                self.stop.clear()
                 released, self.released = self.released, False
                 if released:
                     self.arm.torque(True)  # sets goal = present first, so nothing jumps
-                self.home(slow=True)
+                if released or not at_home:
+                    self.home(slow=True)
                 return not released
-            except Stopped:
-                continue
+            except Stopped:  # stopped again while moving: hold where it froze
+                why, at_home = self.stop.reason, False
 
     def home(self, slow: bool = False) -> None:
         self.enter("MOVING", action="home (slow)" if slow else "home")
